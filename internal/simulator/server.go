@@ -258,7 +258,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "success_url and cancel_url must be absolute HTTP(S) URLs.")
 		return
 	}
-	amountTotal, currency, err := parseLineItems(r.Form)
+	amountTotal, currency, lineItems, err := parseLineItems(r.Form)
 	if err != nil {
 		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -285,6 +285,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		Created:           now.Unix(),
 		Livemode:          false,
 		PaymentIntent:     intentID,
+		LineItems:         lineItems,
 		ControlToken:      controlToken,
 		IdempotencyKey:    idempotencyKey,
 	}
@@ -759,6 +760,7 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 			Metadata:          cloneMap(session.Metadata),
 			Created:           session.Created,
 			PaymentIntent:     session.PaymentIntent,
+			LineItems:         append([]CheckoutLineItem(nil), session.LineItems...),
 		})
 	}
 	intentIDs := make([]string, 0, len(s.intents))

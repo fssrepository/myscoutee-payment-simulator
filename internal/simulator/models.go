@@ -40,8 +40,21 @@ type CheckoutSession struct {
 	Created           int64             `json:"created"`
 	Livemode          bool              `json:"livemode"`
 	PaymentIntent     string            `json:"payment_intent"`
+	LineItems         []CheckoutLineItem `json:"line_items,omitempty"`
 	ControlToken      string            `json:"-"`
 	IdempotencyKey    string            `json:"-"`
+}
+
+// CheckoutLineItem is the subset of Stripe Checkout line-item data that the
+// simulator must preserve in order to render the same basket MyScoutee sent to
+// the gateway. It deliberately contains no cardholder or payment-method data.
+type CheckoutLineItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Quantity    int64  `json:"quantity"`
+	UnitAmount  int64  `json:"unit_amount"`
+	AmountTotal int64  `json:"amount_total"`
+	Currency    string `json:"currency"`
 }
 
 type PaymentIntent struct {
@@ -141,6 +154,7 @@ type CheckoutSessionAudit struct {
 	Metadata          map[string]string `json:"metadata,omitempty"`
 	Created           int64             `json:"created"`
 	PaymentIntent     string            `json:"payment_intent"`
+	LineItems         []CheckoutLineItem `json:"line_items,omitempty"`
 }
 
 type PaymentIntentAudit struct {
