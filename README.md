@@ -47,6 +47,9 @@ MyScoutee integration.
   from the Admin side menu. MyScoutee issues a one-use, ten-minute access ticket
   and embeds the configuration page in the common popup component. Direct access
   to `/`, `/simulator-ui/config.html` or `/configuration-session` is rejected.
+- The configuration page can select Stripe, Barion, or **None**. None is the
+  explicit negative-QA branch for verifying the application's missing-provider
+  handling.
 - API keys, webhook secrets, audit tokens and outcome capabilities are never
   returned by the audit API or logged.
 - This service must not be present in a production Compose topology. The

@@ -18,7 +18,9 @@
   }
 
   function apply(configuration) {
-    const provider = configuration.provider === 'barion' ? 'barion' : 'stripe';
+    const provider = ['none', 'stripe', 'barion'].includes(configuration.provider)
+      ? configuration.provider
+      : 'stripe';
     const input = form.querySelector(`input[name="provider"][value="${provider}"]`);
     if (input) input.checked = true;
     requires3ds.checked = configuration.requires3ds === true;
@@ -29,7 +31,7 @@
     saveButton.disabled = true;
     showMessage('');
     try {
-      const provider = form.querySelector('input[name="provider"]:checked')?.value || 'stripe';
+      const provider = form.querySelector('input[name="provider"]:checked')?.value || 'none';
       apply(await request({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

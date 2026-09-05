@@ -42,7 +42,7 @@ func (s *Server) loadState() error {
 	if state.Registrations != nil {
 		s.registrations = state.Registrations
 	}
-	if state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
+	if state.Configuration.Provider == "none" || state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
 		s.configuration = state.Configuration
 	}
 	s.eventOrder = append([]string(nil), state.EventOrder...)

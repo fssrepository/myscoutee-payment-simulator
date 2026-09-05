@@ -120,8 +120,8 @@ func (s *Server) updateSessionConfiguration(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	request.Provider = strings.ToLower(strings.TrimSpace(request.Provider))
-	if request.Provider != "stripe" && request.Provider != "barion" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Provider must be stripe or barion."})
+	if request.Provider != "none" && request.Provider != "stripe" && request.Provider != "barion" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Provider must be none, stripe or barion."})
 		return
 	}
 	s.mu.Lock()

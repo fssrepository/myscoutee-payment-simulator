@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -78,4 +79,55 @@ func TestConfigurationUIRequiresPrivateOneTimeAccess(t *testing.T) {
 	if protectedPage.Code != http.StatusOK {
 		t.Fatalf("protected configuration page returned %d: %s", protectedPage.Code, protectedPage.Body.String())
 	}
+}
+
+func TestConfigurationAcceptsNoneProviderForNegativeQA(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	cookie := configurationSessionCookie(t, server)
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/configuration-session",
+		strings.NewReader(`{"provider":"none","requires3ds":false}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("none provider update returned %d: %s", response.Code, response.Body.String())
+	}
+
+	var configuration SimulatorConfiguration
+	decodeJSON(t, response.Body.Bytes(), &configuration)
+	if configuration.Provider != "none" {
+		t.Fatalf("provider = %q, want none", configuration.Provider)
+	}
+}
+
+func configurationSessionCookie(t *testing.T, server *Server) *http.Cookie {
+	t.Helper()
+	accessRequest := httptest.NewRequest(http.MethodPost, "/myscoutee/v1/configuration-access", nil)
+	accessRequest.Header.Set("Authorization", "Bearer sk_test_myscoutee")
+	accessResponse := httptest.NewRecorder()
+	server.ServeHTTP(accessResponse, accessRequest)
+	var access struct {
+		URL string `json:"url"`
+	}
+	decodeJSON(t, accessResponse.Body.Bytes(), &access)
+	accessURL, err := url.Parse(access.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exchangeResponse := httptest.NewRecorder()
+	server.ServeHTTP(exchangeResponse, httptest.NewRequest(http.MethodGet, accessURL.RequestURI(), nil))
+	cookies := exchangeResponse.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("configuration exchange returned cookies: %+v", cookies)
+	}
+	return cookies[0]
 }
