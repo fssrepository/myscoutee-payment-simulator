@@ -104,6 +104,8 @@ button:disabled { cursor: wait; opacity: .62; }
 #result-panel { min-height: 16rem; display: grid; place-content: center; text-align: center; }
 .result-icon { width: 3.4rem; height: 3.4rem; margin: 0 auto 1rem; display: grid; place-items: center; border-radius: 50%; background: #dcfae6; color: #067647; font-size: 1.7rem; font-weight: 900; }
 .result-icon.cancelled { background: #f2f4f7; color: #667085; }
+.result-icon.expired { background: #fff5e4; color: #a76419; }
+.result-icon.waiting { border: .25rem solid var(--line); border-top-color: var(--accent); background: transparent; color: transparent; animation: spin .85s linear infinite; }
 
 @media (max-width: 34rem) {
   .shell { padding: .75rem; }

@@ -170,6 +170,8 @@ type PaymentMethodRegistration struct {
 	CardholderName string `json:"cardholderName,omitempty"`
 	ExpiresAt      string `json:"expiresAt"`
 	Requires3DS    bool   `json:"-"`
+	Awaiting3DS    bool   `json:"awaiting3ds,omitempty"`
+	ThreeDSExpires int64  `json:"threeDsExpiresAt,omitempty"`
 	UserReference  string `json:"-"`
 	ControlToken   string `json:"-"`
 	CreatedAt      int64  `json:"-"`

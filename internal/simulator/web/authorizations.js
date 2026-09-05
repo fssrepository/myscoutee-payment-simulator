@@ -42,7 +42,10 @@
     providerLogo.className = 'authorization-provider-logo';
     providerLogo.src = `/simulator-ui/${provider}.svg`;
     providerLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
-    heading.append(providerLogo, text('span', formatAmount(item)));
+    const headingText = item.kind === 'card-registration'
+      ? `Card registration${item.last4 ? ` •••• ${item.last4}` : ''}`
+      : formatAmount(item);
+    heading.append(providerLogo, text('span', headingText));
     details.append(heading);
     const list = document.createElement('dl');
     if (item.userReference) row('Member', item.userReference, list);
@@ -81,7 +84,7 @@
     modeBadge.textContent = data.requires3ds ? '3DS required' : '3DS disabled';
     pending.replaceChildren();
     if (!items.length) {
-      const empty = text('div', 'No payment is waiting for 3DS confirmation.');
+      const empty = text('div', 'No payment or card registration is waiting for 3DS confirmation.');
       empty.className = 'empty';
       pending.append(empty);
       return;

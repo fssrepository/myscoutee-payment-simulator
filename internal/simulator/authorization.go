@@ -13,9 +13,11 @@ const paymentAuthorizationTTL = 3 * time.Minute
 
 type pendingAuthorization struct {
 	ID              string  `json:"id"`
+	Kind            string  `json:"kind,omitempty"`
 	Provider        string  `json:"provider"`
 	Reference       string  `json:"reference,omitempty"`
 	UserReference   string  `json:"userReference,omitempty"`
+	Last4           string  `json:"last4,omitempty"`
 	Amount          float64 `json:"amount"`
 	Currency        string  `json:"currency"`
 	Created         int64   `json:"created"`
@@ -115,6 +117,19 @@ func (s *Server) pendingAuthorizationsLocked() []pendingAuthorization {
 			ID: payment.PaymentID, Provider: "barion", Reference: payment.PaymentRequestID,
 			Amount: payment.Total, Currency: strings.ToUpper(payment.Currency), Created: created.Unix(),
 			ReviewURL: baseURL + "/barion/bank-auth/" + url.PathEscape(payment.PaymentID) + "?token=" + token,
+		})
+	}
+	for _, registration := range s.registrations {
+		if registration == nil || registration.Status != "pending" || !registration.Awaiting3DS ||
+			(registration.ThreeDSExpires > 0 && !time.Unix(registration.ThreeDSExpires, 0).After(s.now().UTC())) {
+			continue
+		}
+		token := url.QueryEscape(registration.ControlToken)
+		result = append(result, pendingAuthorization{
+			ID: registration.ID, Kind: "card-registration", Provider: registration.Provider,
+			Reference: registration.ID, UserReference: registration.UserReference, Last4: registration.Last4,
+			Created:   registration.CreatedAt,
+			ReviewURL: baseURL + "/payment-method-registration-auth/" + url.PathEscape(registration.ID) + "?token=" + token,
 		})
 	}
 	slices.SortFunc(result, func(left, right pendingAuthorization) int {

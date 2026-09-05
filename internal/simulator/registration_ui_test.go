@@ -31,6 +31,11 @@ func TestRegistrationGeneratorFillsEveryCardField(t *testing.T) {
 			t.Fatalf("test-card generator is missing provider card %s", providerCard)
 		}
 	}
+	for _, marker := range []string{"awaiting3ds", "Waiting for 3DS approval", "threeDsExpiresAt"} {
+		if !strings.Contains(script, marker) {
+			t.Fatalf("registration UI is missing 3DS waiting marker %q", marker)
+		}
+	}
 }
 
 func TestProviderLogosAreEmbeddedAcrossSimulatorSurfaces(t *testing.T) {
@@ -49,6 +54,7 @@ func TestProviderLogosAreEmbeddedAcrossSimulatorSurfaces(t *testing.T) {
 		barionGatewayTemplate.Tree.Root.String(),
 		barionBankAuthTemplate.Tree.Root.String(),
 		paymentWaitTemplate.Tree.Root.String(),
+		paymentMethodRegistrationAuthorizationTemplate.Tree.Root.String(),
 	} {
 		if !strings.Contains(surface, "provider-logo") {
 			t.Fatal("payment simulator surface has no provider logo")

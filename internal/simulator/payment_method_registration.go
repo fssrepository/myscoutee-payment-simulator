@@ -49,9 +49,11 @@ func (s *Server) paymentMethodRegistrationRoutes() {
 	s.mux.HandleFunc("GET /myscoutee/v1/payment-method-registrations/{registrationID}", s.retrievePaymentMethodRegistration)
 	s.mux.HandleFunc("DELETE /myscoutee/v1/payment-methods/{provider}/{providerToken}", s.revokePaymentMethod)
 	s.mux.HandleFunc("GET /register/{registrationID}", s.paymentMethodRegistrationPage)
+	s.mux.HandleFunc("GET /payment-method-registration-auth/{registrationID}", s.paymentMethodRegistrationAuthorizationPage)
 	s.mux.HandleFunc("GET /public/payment-method-registrations/{registrationID}", s.publicPaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/complete", s.completePaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/cancel", s.cancelPaymentMethodRegistration)
+	s.mux.HandleFunc("POST /test/payment-method-registrations/{registrationID}/{outcome}", s.applyPaymentMethodRegistrationAuthorization)
 }
 
 func (s *Server) revokePaymentMethod(w http.ResponseWriter, r *http.Request) {
@@ -278,6 +280,12 @@ func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *htt
 		writeJSON(w, http.StatusConflict, result)
 		return
 	}
+	if registration.Awaiting3DS {
+		result := clonePaymentMethodRegistration(registration, false)
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, result)
+		return
+	}
 	if !known || profile.Provider != registration.Provider {
 		s.mu.Unlock()
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "Use one of the simulator test cards shown on this screen."})
@@ -289,19 +297,28 @@ func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *htt
 		return
 	}
 	previous := *registration
-	registration.Status = "completed"
+	registration.Requires3DS = s.configuration.Requires3DS
+	registration.Awaiting3DS = registration.Requires3DS
+	if registration.Awaiting3DS {
+		registration.Status = "pending"
+		registration.ThreeDSExpires = s.now().UTC().Add(paymentAuthorizationTTL).Unix()
+	} else {
+		registration.Status = "completed"
+		registration.ThreeDSExpires = 0
+	}
 	registration.Brand = profile.Brand
 	registration.Last4 = profile.Last4
 	registration.ExpiryMonth = request.ExpiryMonth
 	registration.ExpiryYear = request.ExpiryYear
 	registration.CardholderName = cardholder
-	registration.Requires3DS = s.configuration.Requires3DS
 	if registration.Provider == "stripe" {
 		registration.ProviderToken = "pm_sim_" + randomHex(12)
 	} else {
 		registration.ProviderToken = "rec_sim_" + randomHex(12)
 	}
-	registration.URL = ""
+	if !registration.Awaiting3DS {
+		registration.URL = ""
+	}
 	if err := s.persistLocked(); err != nil {
 		*registration = previous
 		s.mu.Unlock()
@@ -310,7 +327,9 @@ func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *htt
 	}
 	result := clonePaymentMethodRegistration(registration, false)
 	s.mu.Unlock()
-	s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	if result.Status != "pending" {
+		s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -325,6 +344,8 @@ func (s *Server) cancelPaymentMethodRegistration(w http.ResponseWriter, r *http.
 	if registration.Status == "pending" {
 		registration.Status = "cancelled"
 		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
 		if err := s.persistLocked(); err != nil {
 			s.mu.Unlock()
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not cancel registration."})
@@ -335,6 +356,90 @@ func (s *Server) cancelPaymentMethodRegistration(w http.ResponseWriter, r *http.
 	s.mu.Unlock()
 	s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) paymentMethodRegistrationAuthorizationPage(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	registration := s.registrations[r.PathValue("registrationID")]
+	valid := registration != nil && constantTimeEqual(r.URL.Query().Get("token"), registration.ControlToken)
+	changed := valid && s.expirePaymentMethodRegistrationLocked(registration)
+	if changed {
+		_ = s.persistLocked()
+	}
+	var view map[string]any
+	if valid {
+		view = map[string]any{
+			"ID": registration.ID, "Provider": registration.Provider,
+			"ProviderSlug": strings.ToLower(registration.Provider), "Status": registration.Status,
+			"Pending": registration.Status == "pending" && registration.Awaiting3DS,
+			"Last4":   registration.Last4, "Cardholder": registration.CardholderName,
+			"Token": r.URL.Query().Get("token"),
+		}
+	}
+	result := clonePaymentMethodRegistration(registration, false)
+	s.mu.Unlock()
+	if !valid {
+		http.Error(w, "Card registration confirmation was not found.", http.StatusNotFound)
+		return
+	}
+	if changed {
+		go s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := paymentMethodRegistrationAuthorizationTemplate.Execute(w, view); err != nil {
+		http.Error(w, "Could not render card registration confirmation.", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) applyPaymentMethodRegistrationAuthorization(w http.ResponseWriter, r *http.Request) {
+	outcome := strings.ToLower(strings.TrimSpace(r.PathValue("outcome")))
+	if outcome != "approve" && outcome != "decline" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Card registration confirmation must be approved or declined."})
+		return
+	}
+	token := r.URL.Query().Get("token")
+	s.mu.Lock()
+	registration := s.registrations[r.PathValue("registrationID")]
+	if registration == nil || !constantTimeEqual(token, registration.ControlToken) {
+		s.mu.Unlock()
+		http.Error(w, "Card registration confirmation was not found.", http.StatusNotFound)
+		return
+	}
+	changed := s.expirePaymentMethodRegistrationLocked(registration)
+	if !changed && registration.Status == "pending" && registration.Awaiting3DS {
+		previous := *registration
+		if outcome == "approve" {
+			registration.Status = "completed"
+		} else {
+			registration.Status = "failed"
+		}
+		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
+		if err := s.persistLocked(); err != nil {
+			*registration = previous
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not save card registration confirmation."})
+			return
+		}
+		changed = true
+	} else if changed {
+		if err := s.persistLocked(); err != nil {
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not save card registration timeout."})
+			return
+		}
+	} else if registration.Status == "pending" {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Card details must be submitted before confirmation."})
+		return
+	}
+	result := clonePaymentMethodRegistration(registration, false)
+	s.mu.Unlock()
+	if changed {
+		s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
+	http.Redirect(w, r, "/payment-method-registration-auth/"+url.PathEscape(result.ID)+"?token="+url.QueryEscape(token), http.StatusSeeOther)
 }
 
 func (s *Server) deliverPaymentMethodRegistrationCallback(registrationID string, status string) {
@@ -387,10 +492,20 @@ func (s *Server) expirePaymentMethodRegistrationLocked(registration *PaymentMeth
 	if registration == nil || registration.Status != "pending" {
 		return false
 	}
+	if registration.Awaiting3DS && registration.ThreeDSExpires > 0 &&
+		!time.Unix(registration.ThreeDSExpires, 0).After(s.now().UTC()) {
+		registration.Status = "expired"
+		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
+		return true
+	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, registration.ExpiresAt)
 	if err != nil || !expiresAt.After(s.now().UTC()) {
 		registration.Status = "expired"
 		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
 		return true
 	}
 	return false
