@@ -156,12 +156,10 @@ func (s *Server) updateSessionConfiguration(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	s.mu.Lock()
-	if request.Provider != "none" && !s.providerConnectedLocked(request.Provider) {
-		s.mu.Unlock()
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "Generate the selected provider test connection before activating it."})
-		return
-	}
 	previous := s.configuration
+	if request.Provider != "none" {
+		s.ensureProviderConnectionLocked(request.Provider)
+	}
 	s.configuration.Provider = request.Provider
 	s.configuration.Requires3DS = request.Provider != "none" && request.Requires3DS
 	if err := s.persistLocked(); err != nil {
@@ -187,12 +185,7 @@ func (s *Server) createProviderConnection(w http.ResponseWriter, r *http.Request
 	}
 	s.mu.Lock()
 	previous := s.configuration
-	if !s.providerConnectedLocked(provider) {
-		if provider == "stripe" {
-			s.configuration.StripeCredential = "sk_test_" + randomHex(24)
-		} else {
-			s.configuration.BarionCredential = randomGUID()
-		}
+	if s.ensureProviderConnectionLocked(provider) {
 		if err := s.persistLocked(); err != nil {
 			s.configuration = previous
 			s.mu.Unlock()
@@ -203,6 +196,18 @@ func (s *Server) createProviderConnection(w http.ResponseWriter, r *http.Request
 	result := s.configurationViewLocked()
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) ensureProviderConnectionLocked(provider string) bool {
+	if s.providerConnectedLocked(provider) {
+		return false
+	}
+	if provider == "stripe" {
+		s.configuration.StripeCredential = "sk_test_" + randomHex(24)
+	} else if provider == "barion" {
+		s.configuration.BarionCredential = randomGUID()
+	}
+	return true
 }
 
 func (s *Server) authorizeConfigurationSession(r *http.Request) bool {

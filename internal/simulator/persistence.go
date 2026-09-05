@@ -42,14 +42,19 @@ func (s *Server) loadState() error {
 	if state.Registrations != nil {
 		s.registrations = state.Registrations
 	}
+	configurationMigrated := false
 	if state.Configuration.Provider == "none" || state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
 		s.configuration = state.Configuration
-		if s.configuration.Provider == "none" || !s.providerConnectedLocked(s.configuration.Provider) {
-			s.configuration.Provider = "none"
+		if s.configuration.Provider == "none" {
 			s.configuration.Requires3DS = false
+		} else {
+			configurationMigrated = s.ensureProviderConnectionLocked(s.configuration.Provider)
 		}
 	}
 	s.eventOrder = append([]string(nil), state.EventOrder...)
+	if configurationMigrated {
+		return s.persistLocked()
+	}
 	return nil
 }
 

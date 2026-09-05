@@ -21,12 +21,6 @@ small { color: #63758d; line-height: 1.35; }
 .switch-row input { width: 2.8rem; height: 1.45rem; accent-color: #376cb1; }
 button { min-height: 2.85rem; border: 0; border-radius: .75rem; padding: .7rem 1rem; color: #fff; background: #376cb1; font: inherit; font-weight: 800; cursor: pointer; }
 button:disabled { opacity: .55; cursor: wait; }
-.connection-button { flex: none; min-height: 2.35rem; border: 1px solid #83abd9; border-radius: 999px; padding: .5rem .8rem; color: #245b97; background: #f3f8ff; font-size: .78rem; white-space: nowrap; }
-.connection-button.connected { border-color: #a8d9bd; color: #23714a; background: #edf9f2; cursor: default; opacity: 1; }
 .message { min-height: 1.4rem; color: #27724b; font-weight: 750; }
 .message.error { color: #a33b32; }
 .boundary { padding: 0 .2rem; font-size: .78rem; }
-@media (max-width: 34rem) {
-  .choice { align-items: stretch; flex-direction: column; }
-  .connection-button { align-self: flex-end; }
-}
