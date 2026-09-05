@@ -164,7 +164,7 @@ func New(config Config) (*Server, error) {
 		barionPayments:             make(map[string]*BarionPayment),
 		barionRequestIndex:         make(map[string]barionRequestRecord),
 		registrations:              make(map[string]*PaymentMethodRegistration),
-		configuration:              SimulatorConfiguration{Provider: "stripe", Requires3DS: false},
+		configuration:              SimulatorConfiguration{Provider: "none", Requires3DS: false},
 		configurationAccessTickets: make(map[string]time.Time),
 		configurationSessions:      make(map[string]time.Time),
 	}

@@ -81,7 +81,7 @@ func TestConfigurationUIRequiresPrivateOneTimeAccess(t *testing.T) {
 	}
 }
 
-func TestConfigurationAcceptsNoneProviderForNegativeQA(t *testing.T) {
+func TestConfigurationAcceptsNoneProviderForCashOnly(t *testing.T) {
 	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
 	if err != nil {
 		t.Fatal(err)

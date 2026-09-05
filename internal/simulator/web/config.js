@@ -4,6 +4,9 @@
   const requires3ds = document.querySelector('#requires-3ds');
   const saveButton = document.querySelector('#save-button');
   const message = document.querySelector('#message');
+  const parentOrigin = (() => {
+    try { return new URL(document.referrer).origin; } catch { return '*'; }
+  })();
 
   function showMessage(text, error = false) {
     message.textContent = text;
@@ -24,6 +27,11 @@
     const input = form.querySelector(`input[name="provider"][value="${provider}"]`);
     if (input) input.checked = true;
     requires3ds.checked = configuration.requires3ds === true;
+    window.parent.postMessage({
+      source: 'myscoutee-payment-simulator',
+      type: 'configuration',
+      provider
+    }, parentOrigin);
   }
 
   form.addEventListener('submit', async event => {
