@@ -89,13 +89,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 			writeBarionError(w, http.StatusBadRequest, "InvalidRecurrence", "Saved-card TraceId requires RecurrenceType=OneClickPayment.")
 			return
 		}
-		for _, candidate := range s.registrations {
-			if candidate != nil && candidate.Provider == "barion" && candidate.Status == "completed" &&
-				constantTimeEqual(candidate.ProviderToken, request.TraceID) {
-				savedCard = clonePaymentMethodRegistration(candidate, true)
-				break
-			}
-		}
+		savedCard = s.reusablePaymentMethodLocked("barion", request.TraceID)
 		if savedCard == nil {
 			s.mu.Unlock()
 			writeBarionError(w, http.StatusBadRequest, "InvalidTraceId", "The saved simulator payment method is unknown.")

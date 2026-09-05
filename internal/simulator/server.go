@@ -397,18 +397,8 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.RLock()
-	var registration *PaymentMethodRegistration
 	requires3DS := s.configuration.Requires3DS
-	for _, candidate := range s.registrations {
-		if candidate != nil && candidate.Provider == "stripe" && candidate.Status == "completed" &&
-			constantTimeEqual(candidate.ProviderToken, paymentMethod) {
-			registration = clonePaymentMethodRegistration(candidate, true)
-			break
-		}
-	}
-	if registration == nil {
-		registration = simulatorSeedPaymentMethod("stripe", paymentMethod)
-	}
+	registration := s.reusablePaymentMethodLocked("stripe", paymentMethod)
 	s.mu.RUnlock()
 	if registration == nil {
 		writeStripeError(w, http.StatusBadRequest, "card_error", "The saved simulator payment method is unknown.")

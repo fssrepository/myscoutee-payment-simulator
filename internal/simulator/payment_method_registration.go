@@ -47,10 +47,73 @@ func (s *Server) paymentMethodRegistrationRoutes() {
 	s.mux.HandleFunc("GET /simulator-ui/{asset}", s.paymentMethodUIAsset)
 	s.mux.HandleFunc("POST /myscoutee/v1/payment-method-registrations", s.createPaymentMethodRegistration)
 	s.mux.HandleFunc("GET /myscoutee/v1/payment-method-registrations/{registrationID}", s.retrievePaymentMethodRegistration)
+	s.mux.HandleFunc("DELETE /myscoutee/v1/payment-methods/{provider}/{providerToken}", s.revokePaymentMethod)
 	s.mux.HandleFunc("GET /register/{registrationID}", s.paymentMethodRegistrationPage)
 	s.mux.HandleFunc("GET /public/payment-method-registrations/{registrationID}", s.publicPaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/complete", s.completePaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/cancel", s.cancelPaymentMethodRegistration)
+}
+
+func (s *Server) revokePaymentMethod(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeAPI(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid test API key."})
+		return
+	}
+	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
+	providerToken := strings.TrimSpace(r.PathValue("providerToken"))
+	if (provider != "stripe" && provider != "barion") || providerToken == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Payment provider and token are required."})
+		return
+	}
+
+	s.mu.Lock()
+	var registration *PaymentMethodRegistration
+	insertedSeed := false
+	for _, candidate := range s.registrations {
+		if candidate != nil && candidate.Provider == provider &&
+			constantTimeEqual(candidate.ProviderToken, providerToken) {
+			registration = candidate
+			break
+		}
+	}
+	if registration == nil {
+		registration = simulatorSeedPaymentMethod(provider, providerToken)
+		if registration != nil {
+			registration.ID = "seed_" + providerToken
+			s.registrations[registration.ID] = registration
+			insertedSeed = true
+		}
+	}
+	if registration == nil {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Saved payment method was not found."})
+		return
+	}
+	if registration.Status == "revoked" {
+		s.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if registration.Status != "completed" {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Saved payment method is not reusable."})
+		return
+	}
+
+	previous := *registration
+	registration.Status = "revoked"
+	if err := s.persistLocked(); err != nil {
+		if insertedSeed {
+			delete(s.registrations, registration.ID)
+		} else {
+			*registration = previous
+		}
+		s.mu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not revoke saved payment method."})
+		return
+	}
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) paymentMethodUIAsset(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +417,27 @@ func simulatorSeedPaymentMethod(provider string, providerToken string) *PaymentM
 	default:
 		return nil
 	}
+}
+
+// reusablePaymentMethodLocked resolves both registered and seeded simulator
+// cards. A revoked record deliberately shadows its seed so the provider keeps
+// the audit data without accepting the token for another payment.
+func (s *Server) reusablePaymentMethodLocked(provider string, providerToken string) *PaymentMethodRegistration {
+	found := false
+	for _, candidate := range s.registrations {
+		if candidate == nil || candidate.Provider != provider ||
+			!constantTimeEqual(candidate.ProviderToken, providerToken) {
+			continue
+		}
+		found = true
+		if candidate.Status == "completed" {
+			return clonePaymentMethodRegistration(candidate, true)
+		}
+	}
+	if found {
+		return nil
+	}
+	return simulatorSeedPaymentMethod(provider, providerToken)
 }
 
 func decodeStrictJSON(r *http.Request, target any) error {
