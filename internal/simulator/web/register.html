@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Save a test card</title>
+  <link rel="stylesheet" href="/simulator-ui/register.css">
+</head>
+<body>
+  <main class="shell" aria-live="polite">
+    <header>
+      <div class="provider-mark" id="provider-mark">Payment simulator</div>
+      <span class="test-badge">TEST ONLY</span>
+    </header>
+
+    <section id="loading" class="state-card">
+      <span class="spinner" aria-hidden="true"></span>
+      <p>Opening the secure test form…</p>
+    </section>
+
+    <section id="form-panel" class="state-card hidden">
+      <h1>Save a card</h1>
+      <p class="intro">This screen represents the external payment provider. Only the test card numbers below are accepted.</p>
+
+      <div class="test-cards" id="test-cards"></div>
+
+      <form id="card-form" autocomplete="off" novalidate>
+        <label for="cardholder">Name on card</label>
+        <input id="cardholder" name="cardholder" maxlength="64" autocomplete="off" placeholder="TEST USER" required>
+
+        <label for="card-number">Test card number</label>
+        <input id="card-number" name="card-number" inputmode="numeric" autocomplete="off" maxlength="23" placeholder="0000 0000 0000 0000" required>
+
+        <div class="form-row">
+          <div>
+            <label for="expiry-month">Expiry month</label>
+            <select id="expiry-month" required></select>
+          </div>
+          <div>
+            <label for="expiry-year">Expiry year</label>
+            <select id="expiry-year" required></select>
+          </div>
+          <div>
+            <label for="security-code">CVC</label>
+            <input id="security-code" inputmode="numeric" autocomplete="off" maxlength="3" placeholder="123" required>
+          </div>
+        </div>
+
+        <p id="form-error" class="error hidden" role="alert"></p>
+        <button class="primary" id="save-button" type="submit">Tokenize and save card</button>
+        <button class="secondary" id="cancel-button" type="button">Cancel</button>
+      </form>
+      <p class="privacy">The simulator discards the card number and CVC after validation. MyScoutee receives only a provider token and masked display data.</p>
+    </section>
+
+    <section id="result-panel" class="state-card hidden">
+      <div class="result-icon" id="result-icon" aria-hidden="true">✓</div>
+      <h1 id="result-title">Card saved</h1>
+      <p id="result-message">You can return to MyScoutee.</p>
+    </section>
+  </main>
+  <script src="/simulator-ui/register.js" defer></script>
+</body>
+</html>

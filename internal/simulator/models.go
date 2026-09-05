@@ -9,40 +9,44 @@ import (
 )
 
 type Server struct {
-	config             Config
-	now                func() time.Time
-	client             *http.Client
-	db                 *sql.DB
-	mux                *http.ServeMux
-	mu                 sync.RWMutex
-	sessions           map[string]*CheckoutSession
-	intents            map[string]*PaymentIntent
-	idempotency        map[string]idempotencyRecord
-	events             map[string]*WebhookEvent
-	eventOrder         []string
-	barionPayments     map[string]*BarionPayment
-	barionRequestIndex map[string]barionRequestRecord
+	config                     Config
+	now                        func() time.Time
+	client                     *http.Client
+	db                         *sql.DB
+	mux                        *http.ServeMux
+	mu                         sync.RWMutex
+	sessions                   map[string]*CheckoutSession
+	intents                    map[string]*PaymentIntent
+	idempotency                map[string]idempotencyRecord
+	events                     map[string]*WebhookEvent
+	eventOrder                 []string
+	barionPayments             map[string]*BarionPayment
+	barionRequestIndex         map[string]barionRequestRecord
+	registrations              map[string]*PaymentMethodRegistration
+	configuration              SimulatorConfiguration
+	configurationAccessTickets map[string]time.Time
+	configurationSessions      map[string]time.Time
 }
 
 type CheckoutSession struct {
-	ID                string            `json:"id"`
-	Object            string            `json:"object"`
-	URL               string            `json:"url"`
-	Status            string            `json:"status"`
-	PaymentStatus     string            `json:"payment_status"`
-	Mode              string            `json:"mode"`
-	AmountTotal       int64             `json:"amount_total"`
-	Currency          string            `json:"currency"`
-	SuccessURL        string            `json:"success_url"`
-	CancelURL         string            `json:"cancel_url"`
-	ClientReferenceID string            `json:"client_reference_id,omitempty"`
-	Metadata          map[string]string `json:"metadata,omitempty"`
-	Created           int64             `json:"created"`
-	Livemode          bool              `json:"livemode"`
-	PaymentIntent     string            `json:"payment_intent"`
+	ID                string             `json:"id"`
+	Object            string             `json:"object"`
+	URL               string             `json:"url"`
+	Status            string             `json:"status"`
+	PaymentStatus     string             `json:"payment_status"`
+	Mode              string             `json:"mode"`
+	AmountTotal       int64              `json:"amount_total"`
+	Currency          string             `json:"currency"`
+	SuccessURL        string             `json:"success_url"`
+	CancelURL         string             `json:"cancel_url"`
+	ClientReferenceID string             `json:"client_reference_id,omitempty"`
+	Metadata          map[string]string  `json:"metadata,omitempty"`
+	Created           int64              `json:"created"`
+	Livemode          bool               `json:"livemode"`
+	PaymentIntent     string             `json:"payment_intent"`
 	LineItems         []CheckoutLineItem `json:"line_items,omitempty"`
-	ControlToken      string            `json:"-"`
-	IdempotencyKey    string            `json:"-"`
+	ControlToken      string             `json:"-"`
+	IdempotencyKey    string             `json:"-"`
 }
 
 // CheckoutLineItem is the subset of Stripe Checkout line-item data that the
@@ -66,6 +70,7 @@ type PaymentIntent struct {
 	Currency           string                   `json:"currency"`
 	Status             string                   `json:"status"`
 	CaptureMethod      string                   `json:"capture_method"`
+	PaymentMethod      string                   `json:"payment_method,omitempty"`
 	ClientReferenceID  string                   `json:"client_reference_id,omitempty"`
 	Metadata           map[string]string        `json:"metadata,omitempty"`
 	CaptureBefore      int64                    `json:"capture_before,omitempty"`
@@ -135,6 +140,38 @@ type persistedState struct {
 	EventOrder         []string
 	BarionPayments     map[string]*BarionPayment
 	BarionRequestIndex map[string]barionRequestRecord
+	Registrations      map[string]*PaymentMethodRegistration
+	Configuration      SimulatorConfiguration
+}
+
+// SimulatorConfiguration selects the two externally visible QA branches. It
+// deliberately contains no gateway infrastructure controls: MyScoutee still
+// exercises its real Stripe/Barion adapters against this development service.
+type SimulatorConfiguration struct {
+	Provider    string `json:"provider"`
+	Requires3DS bool   `json:"requires3ds"`
+}
+
+// PaymentMethodRegistration is the provider-side result of a saved-card
+// setup. Raw card numbers and security codes are deliberately absent: only a
+// simulator token and the display-safe fields may survive the request.
+type PaymentMethodRegistration struct {
+	ID             string `json:"id"`
+	Provider       string `json:"provider"`
+	Status         string `json:"status"`
+	URL            string `json:"url,omitempty"`
+	ProviderToken  string `json:"providerToken,omitempty"`
+	Brand          string `json:"brand,omitempty"`
+	Last4          string `json:"last4,omitempty"`
+	ExpiryMonth    int    `json:"expiryMonth,omitempty"`
+	ExpiryYear     int    `json:"expiryYear,omitempty"`
+	CardholderName string `json:"cardholderName,omitempty"`
+	ExpiresAt      string `json:"expiresAt"`
+	Requires3DS    bool   `json:"-"`
+	UserReference  string `json:"-"`
+	ControlToken   string `json:"-"`
+	CreatedAt      int64  `json:"-"`
+	CallbackURL    string `json:"-"`
 }
 
 type auditResponse struct {
@@ -145,15 +182,15 @@ type auditResponse struct {
 }
 
 type CheckoutSessionAudit struct {
-	ID                string            `json:"id"`
-	Status            string            `json:"status"`
-	PaymentStatus     string            `json:"payment_status"`
-	AmountTotal       int64             `json:"amount_total"`
-	Currency          string            `json:"currency"`
-	ClientReferenceID string            `json:"client_reference_id,omitempty"`
-	Metadata          map[string]string `json:"metadata,omitempty"`
-	Created           int64             `json:"created"`
-	PaymentIntent     string            `json:"payment_intent"`
+	ID                string             `json:"id"`
+	Status            string             `json:"status"`
+	PaymentStatus     string             `json:"payment_status"`
+	AmountTotal       int64              `json:"amount_total"`
+	Currency          string             `json:"currency"`
+	ClientReferenceID string             `json:"client_reference_id,omitempty"`
+	Metadata          map[string]string  `json:"metadata,omitempty"`
+	Created           int64              `json:"created"`
+	PaymentIntent     string             `json:"payment_intent"`
 	LineItems         []CheckoutLineItem `json:"line_items,omitempty"`
 }
 

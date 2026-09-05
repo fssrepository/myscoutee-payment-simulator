@@ -20,11 +20,9 @@ var bankAuthTemplate = template.Must(template.New("bank-auth").Parse(`<!doctype 
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Simulated bank authentication</title>
 <style>body{font:16px system-ui;max-width:42rem;margin:3rem auto;padding:0 1rem;color:#18253a}main{border:2px solid #526987;border-radius:1rem;padding:1.5rem;background:#eef3f9}.warning{color:#8a3d00}.actions{display:grid;gap:.7rem;margin-top:1.4rem}button{width:100%;padding:.8rem;border:0;border-radius:.6rem;background:#236b47;color:white;font-weight:700}.secondary{background:#596579}.danger{background:#a63333}</style></head>
-<body><main><h1>Simulated bank / 3DS approval</h1><p class="warning">QA screen only. This represents an issuer-controlled challenge that appears only when required.</p>
+<body><main><h1>Was this you?</h1><p class="warning">Simulated bank confirmation. MyScoutee does not control whether this challenge is required.</p>
 <p><strong>Payment intent:</strong> {{.Intent.ID}}<br><strong>Total:</strong> {{.Intent.Amount}} {{.Intent.Currency}} minor units<br><strong>Status:</strong> {{.Intent.Status}}</p>
 <div class="actions">
-<form method="post" action="/test/bank-auth/{{.Session.ID}}/approve?token={{.Token}}"><button>Approve in banking app</button></form>
-<form method="post" action="/test/bank-auth/{{.Session.ID}}/decline?token={{.Token}}"><button class="danger">Bank declines authentication</button></form>
-<form method="post" action="/test/bank-auth/{{.Session.ID}}/timeout?token={{.Token}}"><button class="danger">Authentication times out</button></form>
-<form method="post" action="/test/bank-auth/{{.Session.ID}}/cancel?token={{.Token}}"><button class="secondary">Customer cancels authentication</button></form>
+<form method="post" action="/test/bank-auth/{{.Session.ID}}/approve?token={{.Token}}"><button>Yes, it was me</button></form>
+<form method="post" action="/test/bank-auth/{{.Session.ID}}/decline?token={{.Token}}"><button class="danger">No, it wasn't me</button></form>
 </div></main></body></html>`))

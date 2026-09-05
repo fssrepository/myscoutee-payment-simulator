@@ -56,6 +56,52 @@ func TestCheckoutSessionIsIdempotentAndPersistsAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestRevokedSeedPaymentMethodRemainsAuditableAndCannotBeReused(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "simulator.db")
+	config := testConfig(databasePath)
+	server, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	revoke := httptest.NewRequest(
+		http.MethodDelete,
+		"/myscoutee/v1/payment-methods/stripe/pm_sim_seed_alex_4242",
+		nil)
+	revoke.Header.Set("Authorization", "Bearer sk_test_myscoutee")
+	revokeResponse := httptest.NewRecorder()
+	server.ServeHTTP(revokeResponse, revoke)
+	if revokeResponse.Code != http.StatusNoContent {
+		t.Fatalf("revoke returned %d: %s", revokeResponse.Code, revokeResponse.Body.String())
+	}
+
+	server.mu.RLock()
+	revoked := server.registrations["seed_pm_sim_seed_alex_4242"]
+	reusable := server.reusablePaymentMethodLocked("stripe", "pm_sim_seed_alex_4242")
+	server.mu.RUnlock()
+	if revoked == nil || revoked.Status != "revoked" || revoked.ProviderToken != "pm_sim_seed_alex_4242" {
+		t.Fatalf("revoked payment method audit was not retained: %+v", revoked)
+	}
+	if reusable != nil {
+		t.Fatalf("revoked payment method remained reusable: %+v", reusable)
+	}
+
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	restarted.mu.RLock()
+	reusable = restarted.reusablePaymentMethodLocked("stripe", "pm_sim_seed_alex_4242")
+	restarted.mu.RUnlock()
+	if reusable != nil {
+		t.Fatalf("revoked payment method became reusable after restart: %+v", reusable)
+	}
+}
+
 func TestSuccessfulOutcomeSendsSignedWebhookAndReplayIsAudited(t *testing.T) {
 	var mu sync.Mutex
 	var payloads [][]byte

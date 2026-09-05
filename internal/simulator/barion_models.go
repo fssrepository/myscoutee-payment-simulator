@@ -82,6 +82,8 @@ type barionStartRequest struct {
 	Currency             string                   `json:"Currency"`
 	DelayedCapturePeriod string                   `json:"DelayedCapturePeriod"`
 	PaymentWindow        string                   `json:"PaymentWindow"`
+	RecurrenceType       string                   `json:"RecurrenceType"`
+	TraceID              string                   `json:"TraceId"`
 }
 
 type barionStartTransaction struct {
