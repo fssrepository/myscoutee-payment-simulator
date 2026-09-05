@@ -46,6 +46,7 @@ func (s *Server) deliverBarionCallback(paymentID string) {
 		return
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("X-App-Session-Kind", "demo")
 	response, err := s.client.Do(request)
 	if err != nil {
 		s.recordBarionCallback(paymentID, 0, err)

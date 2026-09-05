@@ -14,30 +14,39 @@
         <h1>Payment simulator</h1>
         <p>Choose the external provider surface and whether the next payments require bank confirmation.</p>
       </div>
-      <span class="test-badge">TEST ONLY</span>
+      <div class="header-side">
+        <img class="provider-logo" id="active-provider-logo" alt="" hidden>
+        <span class="test-badge">TEST ONLY</span>
+      </div>
     </header>
 
     <form id="configuration-form" class="settings-card">
       <fieldset>
         <legend>Provider</legend>
-        <label class="choice">
-          <input type="radio" name="provider" value="none">
-          <span><strong>Cash only</strong></span>
-        </label>
-        <label class="choice">
-          <input type="radio" name="provider" value="stripe">
-          <span><strong>Stripe</strong><small>Use the Stripe registration and payment branch.</small></span>
-        </label>
-        <label class="choice">
-          <input type="radio" name="provider" value="barion">
-          <span><strong>Barion</strong><small>Use the Barion registration and payment branch.</small></span>
-        </label>
+        <div class="choice">
+          <label class="choice-select">
+            <input type="radio" name="provider" value="none">
+            <span><strong>Cash only</strong></span>
+          </label>
+        </div>
+        <div class="choice">
+          <label class="choice-select">
+            <input type="radio" name="provider" value="stripe" aria-label="Stripe">
+            <img class="choice-logo" src="/simulator-ui/stripe.svg" alt="Stripe">
+          </label>
+        </div>
+        <div class="choice">
+          <label class="choice-select">
+            <input type="radio" name="provider" value="barion" aria-label="Barion">
+            <img class="choice-logo" src="/simulator-ui/barion.svg" alt="Barion">
+          </label>
+        </div>
       </fieldset>
 
       <fieldset>
         <legend>Bank confirmation</legend>
         <label class="switch-row">
-          <span><strong>Require 3DS</strong><small>Open the simulated issuer confirmation screen during payment.</small></span>
+          <span><strong>Require 3DS</strong><small>Require confirmation from the separate 3DS simulator screen.</small></span>
           <input id="requires-3ds" type="checkbox" role="switch">
         </label>
       </fieldset>

@@ -92,7 +92,7 @@ func TestConfigurationAcceptsNoneProviderForCashOnly(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPut,
 		"/configuration-session",
-		strings.NewReader(`{"provider":"none","requires3ds":false}`),
+		strings.NewReader(`{"provider":"none","requires3ds":true}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(cookie)
@@ -106,6 +106,46 @@ func TestConfigurationAcceptsNoneProviderForCashOnly(t *testing.T) {
 	decodeJSON(t, response.Body.Bytes(), &configuration)
 	if configuration.Provider != "none" {
 		t.Fatalf("provider = %q, want none", configuration.Provider)
+	}
+	if configuration.Requires3DS {
+		t.Fatal("cash-only configuration retained requires3ds=true")
+	}
+}
+
+func TestProviderActivationGeneratesConnectionAndSecretStaysPrivate(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	cookie := configurationSessionCookie(t, server)
+	activate := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest(
+			http.MethodPut,
+			"/configuration-session",
+			strings.NewReader(`{"provider":"stripe","requires3ds":true}`),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		return response
+	}
+
+	if response := activate(); response.Code != http.StatusOK {
+		t.Fatalf("provider activation returned %d: %s", response.Code, response.Body.String())
+	} else if strings.Contains(response.Body.String(), "sk_test_") {
+		t.Fatalf("admin-safe configuration response leaked the generated credential: %s", response.Body.String())
+	}
+
+	privateRequest := httptest.NewRequest(http.MethodGet, "/myscoutee/v1/configuration", nil)
+	privateRequest.Header.Set("Authorization", "Bearer sk_test_myscoutee")
+	privateResponse := httptest.NewRecorder()
+	server.ServeHTTP(privateResponse, privateRequest)
+	if privateResponse.Code != http.StatusOK || !strings.Contains(privateResponse.Body.String(), `"connected":true`) ||
+		!strings.Contains(privateResponse.Body.String(), `"credential":"sk_test_`) {
+		t.Fatalf("private server configuration returned %d: %s", privateResponse.Code, privateResponse.Body.String())
 	}
 }
 

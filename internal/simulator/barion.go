@@ -18,6 +18,7 @@ func (s *Server) barionRoutes() {
 	s.mux.HandleFunc("POST /v2/Payment/CancelAuthorization", s.cancelBarionAuthorization)
 	s.mux.HandleFunc("GET /barion/gateway/{paymentID}", s.barionGatewayPage)
 	s.mux.HandleFunc("GET /barion/bank-auth/{paymentID}", s.barionBankAuthPage)
+	s.mux.HandleFunc("GET /payment-wait/barion/{paymentID}", s.barionPaymentWaitPage)
 	s.mux.HandleFunc("POST /test/barion/payments/{paymentID}/{outcome}", s.applyBarionGatewayOutcome)
 	s.mux.HandleFunc("POST /test/barion/bank-auth/{paymentID}/{outcome}", s.applyBarionBankOutcome)
 	s.mux.HandleFunc("POST /test/barion/callbacks/{paymentID}/replay", s.replayBarionCallback)
@@ -136,7 +137,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 		if s.configuration.Requires3DS {
 			payment.Status = "InProgress"
 			payment.LastOperation = "customer_action_required"
-			payment.GatewayURL = strings.TrimRight(s.config.PublicBaseURL, "/") + "/barion/bank-auth/" +
+			payment.GatewayURL = strings.TrimRight(s.config.PublicBaseURL, "/") + "/payment-wait/barion/" +
 				url.PathEscape(paymentID) + "?token=" + url.QueryEscape(controlToken)
 			for index := range payment.Transactions {
 				payment.Transactions[index].Status = "Started"
@@ -349,6 +350,24 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 		return
 	}
 	previous := cloneBarionPayment(payment)
+	if bankChallenge && barionAuthorizationTimedOut(payment, s.now().UTC()) {
+		payment.Status = "Expired"
+		payment.CompletedAt = s.now().UTC().Format(time.RFC3339)
+		payment.LastOperation = "3ds_timeout"
+		for index := range payment.Transactions {
+			payment.Transactions[index].Status = "Failed"
+		}
+		if err := s.persistLocked(); err != nil {
+			*s.barionPayments[paymentID] = *previous
+			s.mu.Unlock()
+			http.Error(w, "Could not persist bank authentication timeout.", http.StatusInternalServerError)
+			return
+		}
+		s.mu.Unlock()
+		s.deliverBarionCallback(paymentID)
+		http.Error(w, "The three-minute bank authentication window has expired.", http.StatusGone)
+		return
+	}
 	redirectURL := payment.RedirectURL
 	switch outcome {
 	case "authorize":
