@@ -4,7 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -45,17 +44,23 @@ var simulatorCardProfiles = map[string]simulatorCardProfile{
 }
 
 func (s *Server) paymentMethodRegistrationRoutes() {
-	ui, err := fs.Sub(paymentMethodUI, "web")
-	if err != nil {
-		panic(err)
-	}
-	s.mux.Handle("GET /simulator-ui/", http.StripPrefix("/simulator-ui/", http.FileServer(http.FS(ui))))
+	s.mux.HandleFunc("GET /simulator-ui/{asset}", s.paymentMethodUIAsset)
 	s.mux.HandleFunc("POST /myscoutee/v1/payment-method-registrations", s.createPaymentMethodRegistration)
 	s.mux.HandleFunc("GET /myscoutee/v1/payment-method-registrations/{registrationID}", s.retrievePaymentMethodRegistration)
 	s.mux.HandleFunc("GET /register/{registrationID}", s.paymentMethodRegistrationPage)
 	s.mux.HandleFunc("GET /public/payment-method-registrations/{registrationID}", s.publicPaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/complete", s.completePaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/cancel", s.cancelPaymentMethodRegistration)
+}
+
+func (s *Server) paymentMethodUIAsset(w http.ResponseWriter, r *http.Request) {
+	asset := strings.TrimSpace(r.PathValue("asset"))
+	switch asset {
+	case "config.css", "config.js", "register.css", "register.js":
+		http.ServeFileFS(w, r, paymentMethodUI, "web/"+asset)
+	default:
+		http.NotFound(w, r)
+	}
 }
 
 func (s *Server) createPaymentMethodRegistration(w http.ResponseWriter, r *http.Request) {
@@ -141,28 +146,41 @@ func (s *Server) retrievePaymentMethodRegistration(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+	if changed {
+		go s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
 }
 
 func (s *Server) paymentMethodRegistrationPage(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	registration := s.registrations[r.PathValue("registrationID")]
-	s.expirePaymentMethodRegistrationLocked(registration)
+	changed := s.expirePaymentMethodRegistrationLocked(registration)
+	if changed {
+		_ = s.persistLocked()
+	}
 	valid := registration != nil && constantTimeEqual(r.URL.Query().Get("token"), registration.ControlToken)
+	result := clonePaymentMethodRegistration(registration, false)
 	s.mu.Unlock()
 	if !valid {
 		http.Error(w, "Card registration not found.", http.StatusNotFound)
 		return
 	}
+	if changed {
+		go s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
 	http.ServeFileFS(w, r, paymentMethodUI, "web/register.html")
 }
 
 func (s *Server) publicPaymentMethodRegistration(w http.ResponseWriter, r *http.Request) {
-	registration := s.publicRegistration(r)
+	registration, changed := s.publicRegistration(r)
 	if registration == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Registration not found."})
 		return
 	}
 	writeJSON(w, http.StatusOK, registration)
+	if changed {
+		go s.deliverPaymentMethodRegistrationCallback(registration.ID, registration.Status)
+	}
 }
 
 func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *http.Request) {
@@ -282,17 +300,18 @@ func (s *Server) deliverPaymentMethodRegistrationCallback(registrationID string,
 	_ = response.Body.Close()
 }
 
-func (s *Server) publicRegistration(r *http.Request) *PaymentMethodRegistration {
+func (s *Server) publicRegistration(r *http.Request) (*PaymentMethodRegistration, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	registration := s.registrations[r.PathValue("registrationID")]
 	if registration == nil || !constantTimeEqual(r.URL.Query().Get("token"), registration.ControlToken) {
-		return nil
+		return nil, false
 	}
-	if s.expirePaymentMethodRegistrationLocked(registration) {
+	changed := s.expirePaymentMethodRegistrationLocked(registration)
+	if changed {
 		_ = s.persistLocked()
 	}
-	return clonePaymentMethodRegistration(registration, false)
+	return clonePaymentMethodRegistration(registration, false), changed
 }
 
 func (s *Server) expirePaymentMethodRegistrationLocked(registration *PaymentMethodRegistration) bool {

@@ -1,5 +1,5 @@
 (() => {
-  const endpoint = '/public/simulator-configuration';
+  const endpoint = '/configuration-session';
   const form = document.querySelector('#configuration-form');
   const requires3ds = document.querySelector('#requires-3ds');
   const saveButton = document.querySelector('#save-button');

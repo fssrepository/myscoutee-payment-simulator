@@ -152,19 +152,21 @@ func New(config Config) (*Server, error) {
 		return nil, fmt.Errorf("initialize simulator database: %w", err)
 	}
 	server := &Server{
-		config:             config,
-		now:                now,
-		client:             client,
-		db:                 db,
-		mux:                http.NewServeMux(),
-		sessions:           make(map[string]*CheckoutSession),
-		intents:            make(map[string]*PaymentIntent),
-		idempotency:        make(map[string]idempotencyRecord),
-		events:             make(map[string]*WebhookEvent),
-		barionPayments:     make(map[string]*BarionPayment),
-		barionRequestIndex: make(map[string]barionRequestRecord),
-		registrations:      make(map[string]*PaymentMethodRegistration),
-		configuration:      SimulatorConfiguration{Provider: "stripe", Requires3DS: false},
+		config:                     config,
+		now:                        now,
+		client:                     client,
+		db:                         db,
+		mux:                        http.NewServeMux(),
+		sessions:                   make(map[string]*CheckoutSession),
+		intents:                    make(map[string]*PaymentIntent),
+		idempotency:                make(map[string]idempotencyRecord),
+		events:                     make(map[string]*WebhookEvent),
+		barionPayments:             make(map[string]*BarionPayment),
+		barionRequestIndex:         make(map[string]barionRequestRecord),
+		registrations:              make(map[string]*PaymentMethodRegistration),
+		configuration:              SimulatorConfiguration{Provider: "stripe", Requires3DS: false},
+		configurationAccessTickets: make(map[string]time.Time),
+		configurationSessions:      make(map[string]time.Time),
 	}
 	if err := server.loadState(); err != nil {
 		_ = db.Close()
@@ -184,7 +186,10 @@ func (s *Server) Close() error {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if strings.HasPrefix(r.URL.Path, "/register/") || strings.HasPrefix(r.URL.Path, "/simulator-ui/") {
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if strings.HasPrefix(r.URL.Path, "/register/") ||
+		strings.HasPrefix(r.URL.Path, "/configuration-access/") ||
+		strings.HasPrefix(r.URL.Path, "/simulator-ui/") {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors http://localhost:* http://127.0.0.1:*")
 	} else {
 		w.Header().Set("X-Frame-Options", "DENY")
@@ -424,7 +429,7 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 		bankURL := strings.TrimRight(s.config.PublicBaseURL, "/") + "/bank-auth/" +
 			url.PathEscape(sessionID) + "?token=" + url.QueryEscape(controlToken)
 		nextAction = &PaymentIntentNextAction{
-			Type: "redirect_to_url",
+			Type:          "redirect_to_url",
 			RedirectToURL: PaymentIntentRedirectToURL{URL: bankURL, ReturnURL: returnURL},
 		}
 	}
