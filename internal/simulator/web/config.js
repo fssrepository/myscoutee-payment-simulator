@@ -26,13 +26,21 @@
       : 'stripe';
     const input = form.querySelector(`input[name="provider"][value="${provider}"]`);
     if (input) input.checked = true;
-    requires3ds.checked = configuration.requires3ds === true;
+    requires3ds.disabled = provider === 'none';
+    requires3ds.checked = provider !== 'none' && configuration.requires3ds === true;
     window.parent.postMessage({
       source: 'myscoutee-payment-simulator',
       type: 'configuration',
       provider
     }, parentOrigin);
   }
+
+  form.addEventListener('change', event => {
+    if (event.target?.name !== 'provider') return;
+    const cashOnly = event.target.value === 'none';
+    requires3ds.disabled = cashOnly;
+    if (cashOnly) requires3ds.checked = false;
+  });
 
   form.addEventListener('submit', async event => {
     event.preventDefault();

@@ -92,7 +92,7 @@ func TestConfigurationAcceptsNoneProviderForCashOnly(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPut,
 		"/configuration-session",
-		strings.NewReader(`{"provider":"none","requires3ds":false}`),
+		strings.NewReader(`{"provider":"none","requires3ds":true}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	request.AddCookie(cookie)
@@ -106,6 +106,9 @@ func TestConfigurationAcceptsNoneProviderForCashOnly(t *testing.T) {
 	decodeJSON(t, response.Body.Bytes(), &configuration)
 	if configuration.Provider != "none" {
 		t.Fatalf("provider = %q, want none", configuration.Provider)
+	}
+	if configuration.Requires3DS {
+		t.Fatal("cash-only configuration retained requires3ds=true")
 	}
 }
 

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3DS confirmations</title>
+  <link rel="stylesheet" href="/simulator-ui/authorizations.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <span class="eyebrow">MYSCOUTEE DEVELOPMENT</span>
+        <h1>3DS confirmations</h1>
+        <p>Approve or decline payments waiting for confirmation in the external simulator.</p>
+      </div>
+      <span class="test-badge">TEST ONLY</span>
+    </header>
+    <section class="summary" aria-live="polite">
+      <span id="provider-badge">Cash only</span>
+      <span id="mode-badge">3DS disabled</span>
+    </section>
+    <p id="message" class="message" role="status"></p>
+    <section id="pending" class="pending" aria-live="polite"></section>
+  </main>
+  <script src="/simulator-ui/authorizations.js" defer></script>
+</body>
+</html>

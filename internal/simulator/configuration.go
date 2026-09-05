@@ -56,6 +56,10 @@ func (s *Server) createConfigurationAccess(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) exchangeConfigurationAccess(w http.ResponseWriter, r *http.Request) {
+	s.exchangeAdminAccess(w, r, "/simulator-ui/config.html")
+}
+
+func (s *Server) exchangeAdminAccess(w http.ResponseWriter, r *http.Request, target string) {
 	ticket := strings.TrimSpace(r.PathValue("ticket"))
 	now := s.now().UTC()
 	s.mu.Lock()
@@ -83,7 +87,7 @@ func (s *Server) exchangeConfigurationAccess(w http.ResponseWriter, r *http.Requ
 		Secure:   strings.HasPrefix(strings.ToLower(s.config.PublicBaseURL), "https://"),
 		SameSite: http.SameSiteStrictMode,
 	})
-	http.Redirect(w, r, "/simulator-ui/config.html", http.StatusSeeOther)
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) configurationDocument(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +127,9 @@ func (s *Server) updateSessionConfiguration(w http.ResponseWriter, r *http.Reque
 	if request.Provider != "none" && request.Provider != "stripe" && request.Provider != "barion" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Provider must be none, stripe or barion."})
 		return
+	}
+	if request.Provider == "none" {
+		request.Requires3DS = false
 	}
 	s.mu.Lock()
 	previous := s.configuration

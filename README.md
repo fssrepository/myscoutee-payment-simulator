@@ -11,8 +11,8 @@ collects card data.
 - `POST /v2/Payment/Start`, v4 PaymentState, Capture and
   CancelAuthorization implement the Barion `DelayedCapture` subset used by
   MyScoutee.
-- Both provider UIs can authorize directly or require a simulated bank/3DS
-  action first. Approve, decline, cancel and timeout paths are explicit.
+- When 3DS is enabled, the member receives a read-only waiting surface while
+  the separate Admin 3DS simulator surface exposes approve and decline actions.
 - Stripe emits signed event payloads. Barion emits the intentionally smaller
   `PaymentId` callback notification so the application must read PaymentState.
 - Stripe gateway outcomes emit Stripe-shaped events with a
@@ -40,16 +40,16 @@ MyScoutee integration.
   the generated checkout URL.
 - Audit and webhook replay require `X-Test-Audit-Token`; the endpoint is
   disabled when no audit token is configured.
-- Card-registration and simulated bank/3DS documents are capability URLs tied
-  to one provider session; their HTML documents are not directly addressable.
+- Card-registration and member waiting documents are capability URLs tied to
+  one provider session. The actionable 3DS surface is available only through a
+  protected, one-use admin access ticket.
 - The configuration page is not a public simulator URL. In the development
   stack an authenticated MyScoutee administrator opens **Payment simulator**
   from the Admin side menu. MyScoutee issues a one-use, ten-minute access ticket
   and embeds the configuration page in the common popup component. Direct access
   to `/`, `/simulator-ui/config.html` or `/configuration-session` is rejected.
-- The configuration page can select Stripe, Barion, or **None**. None is the
-  explicit negative-QA branch for verifying the application's missing-provider
-  handling.
+- The configuration page can select Stripe, Barion, or **Cash only**. Cash only
+  keeps the deployment usable without a card provider.
 - API keys, webhook secrets, audit tokens and outcome capabilities are never
   returned by the audit API or logged.
 - This service must not be present in a production Compose topology. The
@@ -76,7 +76,7 @@ normal QA route is the parent MyScoutee development Compose stack; do not start
 a second backend/frontend build to exercise it.
 
 The GitHub/frontend-local build deliberately has no simulator URL. Its Admin
-menu keeps the Payment simulator entry visible but disabled, while the seeded
+menu keeps both simulator entries visible but disabled, while the seeded
 payment-card expiry job remains available in the normal Jobs screen. Production
 and E2E frontend environments neither expose nor embed the simulator config
 surface.

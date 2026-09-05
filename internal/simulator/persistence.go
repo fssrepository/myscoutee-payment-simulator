@@ -44,6 +44,9 @@ func (s *Server) loadState() error {
 	}
 	if state.Configuration.Provider == "none" || state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
 		s.configuration = state.Configuration
+		if s.configuration.Provider == "none" {
+			s.configuration.Requires3DS = false
+		}
 	}
 	s.eventOrder = append([]string(nil), state.EventOrder...)
 	return nil

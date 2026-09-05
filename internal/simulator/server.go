@@ -189,6 +189,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if strings.HasPrefix(r.URL.Path, "/register/") ||
 		strings.HasPrefix(r.URL.Path, "/configuration-access/") ||
+		strings.HasPrefix(r.URL.Path, "/authorization-access/") ||
+		strings.HasPrefix(r.URL.Path, "/payment-wait/") ||
 		strings.HasPrefix(r.URL.Path, "/simulator-ui/") {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors http://localhost:* http://127.0.0.1:*")
 	} else {
@@ -209,11 +211,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/payment_intents/{intentID}/cancel", s.cancelPaymentIntent)
 	s.mux.HandleFunc("GET /checkout/{sessionID}", s.checkoutPage)
 	s.mux.HandleFunc("GET /bank-auth/{sessionID}", s.bankAuthPage)
+	s.mux.HandleFunc("GET /payment-wait/stripe/{sessionID}", s.stripePaymentWaitPage)
 	s.mux.HandleFunc("POST /test/sessions/{sessionID}/{outcome}", s.applyOutcome)
 	s.mux.HandleFunc("POST /test/bank-auth/{sessionID}/{outcome}", s.applyBankOutcome)
 	s.mux.HandleFunc("POST /test/events/{eventID}/replay", s.replayEvent)
 	s.mux.HandleFunc("GET /test/audit", s.audit)
 	s.configurationRoutes()
+	s.authorizationRoutes()
 	s.paymentMethodRegistrationRoutes()
 	s.barionRoutes()
 }
@@ -416,11 +420,11 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 	if requires3DS {
 		status = "requires_action"
 		sessionStatus = "open"
-		bankURL := strings.TrimRight(s.config.PublicBaseURL, "/") + "/bank-auth/" +
+		waitingURL := strings.TrimRight(s.config.PublicBaseURL, "/") + "/payment-wait/stripe/" +
 			url.PathEscape(sessionID) + "?token=" + url.QueryEscape(controlToken)
 		nextAction = &PaymentIntentNextAction{
 			Type:          "redirect_to_url",
-			RedirectToURL: PaymentIntentRedirectToURL{URL: bankURL, ReturnURL: returnURL},
+			RedirectToURL: PaymentIntentRedirectToURL{URL: waitingURL, ReturnURL: returnURL},
 		}
 	}
 	intent := &PaymentIntent{
