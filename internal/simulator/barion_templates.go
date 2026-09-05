@@ -19,11 +19,9 @@ var barionBankAuthTemplate = template.Must(template.New("barion-bank-auth").Pars
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Barion simulated bank authentication</title>
 <style>body{font:16px system-ui;max-width:42rem;margin:3rem auto;padding:0 1rem;color:#18253a}main{border:2px solid #526987;border-radius:1rem;padding:1.5rem;background:#eef3f9}.warning{color:#8a3d00}.actions{display:grid;gap:.7rem;margin-top:1.4rem}button{width:100%;padding:.8rem;border:0;border-radius:.6rem;background:#236b47;color:white;font-weight:700}.secondary{background:#596579}.danger{background:#a63333}</style></head>
-<body><main><h1>Simulated bank / 3DS approval</h1><p class="warning">QA screen only. The issuer may show this challenge, but it is not guaranteed for every payment.</p>
+<body><main><h1>Was this you?</h1><p class="warning">Simulated bank confirmation. MyScoutee does not control whether this challenge is required.</p>
 <p><strong>Payment:</strong> {{.Payment.PaymentID}}<br><strong>Total:</strong> {{.Payment.Total}} {{.Payment.Currency}}<br><strong>Status:</strong> {{.Payment.Status}}</p>
 <div class="actions">
-<form method="post" action="/test/barion/bank-auth/{{.Payment.PaymentID}}/approve?token={{.Token}}"><button>Approve in banking app</button></form>
-<form method="post" action="/test/barion/bank-auth/{{.Payment.PaymentID}}/decline?token={{.Token}}"><button class="danger">Bank declines authentication</button></form>
-<form method="post" action="/test/barion/bank-auth/{{.Payment.PaymentID}}/timeout?token={{.Token}}"><button class="danger">Authentication times out</button></form>
-<form method="post" action="/test/barion/bank-auth/{{.Payment.PaymentID}}/cancel?token={{.Token}}"><button class="secondary">Customer cancels authentication</button></form>
+<form method="post" action="/test/barion/bank-auth/{{.Payment.PaymentID}}/approve?token={{.Token}}"><button>Yes, it was me</button></form>
+<form method="post" action="/test/barion/bank-auth/{{.Payment.PaymentID}}/decline?token={{.Token}}"><button class="danger">No, it wasn't me</button></form>
 </div></main></body></html>`))

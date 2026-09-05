@@ -38,6 +38,8 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	request.PaymentRequestID = strings.TrimSpace(request.PaymentRequestID)
 	request.Currency = strings.ToUpper(strings.TrimSpace(request.Currency))
 	request.Locale = firstNonBlank(request.Locale, "en-US")
+	request.RecurrenceType = strings.TrimSpace(request.RecurrenceType)
+	request.TraceID = strings.TrimSpace(request.TraceID)
 	if request.PaymentType != "DelayedCapture" {
 		writeBarionError(w, http.StatusBadRequest, "InvalidPaymentType", "Only DelayedCapture is supported by the MyScoutee hold contract.")
 		return
@@ -80,6 +82,26 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	requestHash := sha256Hex(canonicalRequest)
 
 	s.mu.Lock()
+	var savedCard *PaymentMethodRegistration
+	if request.TraceID != "" {
+		if request.RecurrenceType != "OneClickPayment" {
+			s.mu.Unlock()
+			writeBarionError(w, http.StatusBadRequest, "InvalidRecurrence", "Saved-card TraceId requires RecurrenceType=OneClickPayment.")
+			return
+		}
+		for _, candidate := range s.registrations {
+			if candidate != nil && candidate.Provider == "barion" && candidate.Status == "completed" &&
+				constantTimeEqual(candidate.ProviderToken, request.TraceID) {
+				savedCard = clonePaymentMethodRegistration(candidate, true)
+				break
+			}
+		}
+		if savedCard == nil {
+			s.mu.Unlock()
+			writeBarionError(w, http.StatusBadRequest, "InvalidTraceId", "The saved simulator payment method is unknown.")
+			return
+		}
+	}
 	if existing, found := s.barionRequestIndex[request.PaymentRequestID]; found {
 		payment := cloneBarionPayment(s.barionPayments[existing.PaymentID])
 		s.mu.Unlock()
@@ -115,6 +137,21 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 		RedirectURL: appendURLQuery(request.RedirectURL, "paymentId", paymentID),
 		GatewayURL:  gatewayURL, ControlToken: controlToken, RequestHash: requestHash,
 	}
+	if savedCard != nil {
+		payment.PaymentMethod = "BankCard"
+		if s.configuration.Requires3DS {
+			payment.Status = "InProgress"
+			payment.LastOperation = "customer_action_required"
+			payment.GatewayURL = strings.TrimRight(s.config.PublicBaseURL, "/") + "/barion/bank-auth/" +
+				url.PathEscape(paymentID) + "?token=" + url.QueryEscape(controlToken)
+			for index := range payment.Transactions {
+				payment.Transactions[index].Status = "Started"
+			}
+		} else {
+			authorizeBarionPayment(payment, now)
+			payment.GatewayURL = ""
+		}
+	}
 	s.barionPayments[paymentID] = payment
 	s.barionRequestIndex[payment.PaymentRequestID] = barionRequestRecord{RequestHash: requestHash, PaymentID: paymentID}
 	if err := s.persistLocked(); err != nil {
@@ -126,6 +163,9 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	result := cloneBarionPayment(payment)
 	s.mu.Unlock()
+	if result.Status == "Authorized" {
+		s.deliverBarionCallback(result.PaymentID)
+	}
 	writeJSON(w, http.StatusOK, barionStartResponseFor(result))
 }
 

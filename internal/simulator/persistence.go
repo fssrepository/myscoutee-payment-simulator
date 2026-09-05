@@ -39,6 +39,12 @@ func (s *Server) loadState() error {
 	if state.BarionRequestIndex != nil {
 		s.barionRequestIndex = state.BarionRequestIndex
 	}
+	if state.Registrations != nil {
+		s.registrations = state.Registrations
+	}
+	if state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
+		s.configuration = state.Configuration
+	}
 	s.eventOrder = append([]string(nil), state.EventOrder...)
 	return nil
 }
@@ -53,6 +59,8 @@ func (s *Server) persistLocked() error {
 		EventOrder:         s.eventOrder,
 		BarionPayments:     s.barionPayments,
 		BarionRequestIndex: s.barionRequestIndex,
+		Registrations:      s.registrations,
+		Configuration:      s.configuration,
 	}
 	if err := gob.NewEncoder(&payload).Encode(state); err != nil {
 		return err
