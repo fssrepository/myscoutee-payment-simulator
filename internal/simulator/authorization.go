@@ -9,15 +9,17 @@ import (
 	"time"
 )
 
+const paymentAuthorizationTTL = 3 * time.Minute
+
 type pendingAuthorization struct {
 	ID              string  `json:"id"`
 	Provider        string  `json:"provider"`
 	Reference       string  `json:"reference,omitempty"`
+	UserReference   string  `json:"userReference,omitempty"`
 	Amount          float64 `json:"amount"`
 	Currency        string  `json:"currency"`
 	Created         int64   `json:"created"`
-	ApproveURL      string  `json:"approveUrl"`
-	DeclineURL      string  `json:"declineUrl"`
+	ReviewURL       string  `json:"reviewUrl"`
 	AmountMinorUnit bool    `json:"amountMinorUnit"`
 }
 
@@ -26,6 +28,7 @@ func (s *Server) authorizationRoutes() {
 	s.mux.HandleFunc("GET /authorization-access/{ticket}", s.exchangeAuthorizationAccess)
 	s.mux.HandleFunc("GET /simulator-ui/authorizations.html", s.authorizationDocument)
 	s.mux.HandleFunc("GET /authorization-session", s.sessionAuthorizations)
+	s.mux.HandleFunc("GET /public/payment-authorizations/{provider}/{authorizationID}", s.publicPaymentAuthorizationStatus)
 }
 
 func (s *Server) createAuthorizationAccess(w http.ResponseWriter, r *http.Request) {
@@ -93,13 +96,12 @@ func (s *Server) pendingAuthorizationsLocked() []pendingAuthorization {
 			continue
 		}
 		token := url.QueryEscape(session.ControlToken)
-		actionBase := baseURL + "/test/bank-auth/" + url.PathEscape(session.ID)
 		result = append(result, pendingAuthorization{
 			ID: session.ID, Provider: "stripe",
-			Reference: firstNonBlank(intent.ClientReferenceID, session.ClientReferenceID),
-			Amount:    float64(intent.Amount), Currency: strings.ToUpper(intent.Currency), Created: intent.Created,
-			ApproveURL:      actionBase + "/approve?token=" + token + "&format=json",
-			DeclineURL:      actionBase + "/decline?token=" + token + "&format=json",
+			Reference:     firstNonBlank(intent.ClientReferenceID, session.ClientReferenceID),
+			UserReference: firstNonBlank(intent.Metadata["user_id"], session.Metadata["user_id"]),
+			Amount:        float64(intent.Amount), Currency: strings.ToUpper(intent.Currency), Created: intent.Created,
+			ReviewURL:       baseURL + "/bank-auth/" + url.PathEscape(session.ID) + "?token=" + token,
 			AmountMinorUnit: true,
 		})
 	}
@@ -109,12 +111,10 @@ func (s *Server) pendingAuthorizationsLocked() []pendingAuthorization {
 		}
 		created, _ := time.Parse(time.RFC3339, payment.CreatedAt)
 		token := url.QueryEscape(payment.ControlToken)
-		actionBase := baseURL + "/test/barion/bank-auth/" + url.PathEscape(payment.PaymentID)
 		result = append(result, pendingAuthorization{
 			ID: payment.PaymentID, Provider: "barion", Reference: payment.PaymentRequestID,
 			Amount: payment.Total, Currency: strings.ToUpper(payment.Currency), Created: created.Unix(),
-			ApproveURL: actionBase + "/approve?token=" + token + "&format=json",
-			DeclineURL: actionBase + "/decline?token=" + token + "&format=json",
+			ReviewURL: baseURL + "/barion/bank-auth/" + url.PathEscape(payment.PaymentID) + "?token=" + token,
 		})
 	}
 	slices.SortFunc(result, func(left, right pendingAuthorization) int {
@@ -141,7 +141,9 @@ func (s *Server) stripePaymentWaitPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Payment confirmation was not found.", http.StatusNotFound)
 		return
 	}
-	s.renderPaymentWaitPage(w, "Stripe", intent.ID, float64(intent.Amount), strings.ToUpper(intent.Currency), true)
+	token := url.QueryEscape(session.ControlToken)
+	statusURL := "/public/payment-authorizations/stripe/" + url.PathEscape(session.ID) + "?token=" + token
+	s.renderPaymentWaitPage(w, "Stripe", session.ID, intent.ID, float64(intent.Amount), strings.ToUpper(intent.Currency), true, statusURL)
 }
 
 func (s *Server) barionPaymentWaitPage(w http.ResponseWriter, r *http.Request) {
@@ -152,22 +154,168 @@ func (s *Server) barionPaymentWaitPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Payment confirmation was not found.", http.StatusNotFound)
 		return
 	}
-	s.renderPaymentWaitPage(w, "Barion", payment.PaymentID, payment.Total, strings.ToUpper(payment.Currency), false)
+	token := url.QueryEscape(payment.ControlToken)
+	statusURL := "/public/payment-authorizations/barion/" + url.PathEscape(payment.PaymentID) + "?token=" + token
+	s.renderPaymentWaitPage(w, "Barion", payment.PaymentID, payment.PaymentID, payment.Total, strings.ToUpper(payment.Currency), false, statusURL)
 }
 
 func (s *Server) renderPaymentWaitPage(
 	w http.ResponseWriter,
 	provider string,
+	id string,
 	reference string,
 	amount float64,
 	currency string,
 	minorUnits bool,
+	statusURL string,
 ) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := paymentWaitTemplate.Execute(w, map[string]any{
-		"Provider": provider, "Reference": reference, "Amount": amount,
-		"Currency": currency, "MinorUnits": minorUnits,
+		"Provider": provider, "ID": id, "Reference": reference, "Amount": amount,
+		"Currency": currency, "MinorUnits": minorUnits, "StatusURL": statusURL,
 	}); err != nil {
 		http.Error(w, "Could not render payment confirmation status.", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) publicPaymentAuthorizationStatus(w http.ResponseWriter, r *http.Request) {
+	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
+	id := strings.TrimSpace(r.PathValue("authorizationID"))
+	token := r.URL.Query().Get("token")
+	var stripeEvent *WebhookEvent
+	var barionCallbackID string
+	var expiresAt int64
+	var previousSession *CheckoutSession
+	var previousIntent *PaymentIntent
+	var previousBarion *BarionPayment
+
+	s.mu.Lock()
+	status, found, changed := "", false, false
+	switch provider {
+	case "stripe":
+		session := s.sessions[id]
+		var intent *PaymentIntent
+		if session != nil {
+			intent = s.intents[session.PaymentIntent]
+		}
+		if session != nil && intent != nil && constantTimeEqual(token, session.ControlToken) {
+			found = true
+			expiresAt = time.Unix(intent.Created, 0).Add(paymentAuthorizationTTL).Unix()
+			if stripeAuthorizationTimedOut(intent, s.now().UTC()) {
+				previousSession = cloneSession(session)
+				previousIntent = clonePaymentIntent(intent)
+				session.Status = "expired"
+				session.PaymentStatus = "unpaid"
+				intent.Status = "canceled"
+				intent.CancellationReason = "abandoned"
+				intent.NextAction = nil
+				stripeEvent = s.newEventLocked("payment_intent.canceled", intent, session.IdempotencyKey)
+				changed = true
+			}
+			status = stripeAuthorizationStatus(intent)
+		}
+	case "barion":
+		payment := s.barionPayments[id]
+		if payment != nil && constantTimeEqual(token, payment.ControlToken) {
+			found = true
+			if created, err := time.Parse(time.RFC3339, payment.CreatedAt); err == nil {
+				expiresAt = created.Add(paymentAuthorizationTTL).Unix()
+			}
+			if barionAuthorizationTimedOut(payment, s.now().UTC()) {
+				previousBarion = cloneBarionPayment(payment)
+				payment.Status = "Expired"
+				payment.LastOperation = "3ds_timeout"
+				for index := range payment.Transactions {
+					payment.Transactions[index].Status = "Failed"
+				}
+				barionCallbackID = payment.PaymentID
+				changed = true
+			}
+			status = barionAuthorizationStatus(payment)
+		}
+	}
+	if changed {
+		if err := s.persistLocked(); err != nil {
+			if previousSession != nil {
+				*s.sessions[id] = *previousSession
+			}
+			if previousIntent != nil {
+				*s.intents[previousIntent.ID] = *previousIntent
+			}
+			if stripeEvent != nil {
+				delete(s.events, stripeEvent.ID)
+				s.eventOrder = s.eventOrder[:len(s.eventOrder)-1]
+			}
+			if previousBarion != nil {
+				*s.barionPayments[id] = *previousBarion
+			}
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not persist payment authorization timeout."})
+			return
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Payment authorization was not found."})
+		return
+	}
+	if stripeEvent != nil {
+		s.deliver(stripeEvent)
+	}
+	if barionCallbackID != "" {
+		s.deliverBarionCallback(barionCallbackID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": status, "expiresAt": expiresAt})
+}
+
+func stripeAuthorizationTimedOut(intent *PaymentIntent, now time.Time) bool {
+	return intent != nil && intent.Status == "requires_action" &&
+		time.Unix(intent.Created, 0).Add(paymentAuthorizationTTL).Before(now)
+}
+
+func barionAuthorizationTimedOut(payment *BarionPayment, now time.Time) bool {
+	created, err := time.Parse(time.RFC3339, payment.CreatedAt)
+	return payment != nil && err == nil && payment.Status == "InProgress" &&
+		payment.LastOperation == "customer_action_required" && created.Add(paymentAuthorizationTTL).Before(now)
+}
+
+func stripeAuthorizationStatus(intent *PaymentIntent) string {
+	if intent == nil {
+		return "failed"
+	}
+	switch intent.Status {
+	case "requires_action":
+		return "pending"
+	case "requires_capture":
+		return "authorized"
+	case "succeeded":
+		return "captured"
+	case "canceled":
+		if intent.CancellationReason == "abandoned" {
+			return "expired"
+		}
+		return "cancelled"
+	default:
+		return "failed"
+	}
+}
+
+func barionAuthorizationStatus(payment *BarionPayment) string {
+	if payment == nil {
+		return "failed"
+	}
+	switch strings.ToLower(payment.Status) {
+	case "inprogress", "prepared", "started":
+		return "pending"
+	case "authorized":
+		return "authorized"
+	case "succeeded":
+		return "captured"
+	case "expired":
+		return "expired"
+	case "canceled":
+		return "cancelled"
+	default:
+		return "failed"
 	}
 }

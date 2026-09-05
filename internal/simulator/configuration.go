@@ -19,6 +19,30 @@ func (s *Server) configurationRoutes() {
 	s.mux.HandleFunc("GET /simulator-ui/config.html", s.configurationDocument)
 	s.mux.HandleFunc("GET /configuration-session", s.sessionConfiguration)
 	s.mux.HandleFunc("PUT /configuration-session", s.updateSessionConfiguration)
+	s.mux.HandleFunc("POST /configuration-session/providers/{provider}/connection", s.createProviderConnection)
+}
+
+type updateSimulatorConfigurationRequest struct {
+	Provider    string `json:"provider"`
+	Requires3DS bool   `json:"requires3ds"`
+}
+
+type providerConnectionView struct {
+	Connected      bool   `json:"connected"`
+	CredentialMask string `json:"credentialMask,omitempty"`
+}
+
+type simulatorConfigurationView struct {
+	Provider    string                            `json:"provider"`
+	Requires3DS bool                              `json:"requires3ds"`
+	Connections map[string]providerConnectionView `json:"connections"`
+}
+
+type privateSimulatorConfiguration struct {
+	Provider    string `json:"provider"`
+	Requires3DS bool   `json:"requires3ds"`
+	Connected   bool   `json:"connected"`
+	Credential  string `json:"credential,omitempty"`
 }
 
 func (s *Server) configurationPage(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +58,10 @@ func (s *Server) privateConfiguration(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid test API key."})
 		return
 	}
-	s.writeConfiguration(w)
+	s.mu.RLock()
+	result := s.privateConfigurationLocked()
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) createConfigurationAccess(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +137,7 @@ func (s *Server) sessionConfiguration(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Admin configuration session is missing or expired."})
 		return
 	}
-	s.writeConfiguration(w)
+	s.writeConfigurationView(w)
 }
 
 func (s *Server) updateSessionConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +145,7 @@ func (s *Server) updateSessionConfiguration(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Admin configuration session is missing or expired."})
 		return
 	}
-	var request SimulatorConfiguration
+	var request updateSimulatorConfigurationRequest
 	if err := decodeStrictJSON(r, &request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid simulator configuration."})
 		return
@@ -128,19 +155,52 @@ func (s *Server) updateSessionConfiguration(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Provider must be none, stripe or barion."})
 		return
 	}
-	if request.Provider == "none" {
-		request.Requires3DS = false
-	}
 	s.mu.Lock()
+	if request.Provider != "none" && !s.providerConnectedLocked(request.Provider) {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Generate the selected provider test connection before activating it."})
+		return
+	}
 	previous := s.configuration
-	s.configuration = request
+	s.configuration.Provider = request.Provider
+	s.configuration.Requires3DS = request.Provider != "none" && request.Requires3DS
 	if err := s.persistLocked(); err != nil {
 		s.configuration = previous
 		s.mu.Unlock()
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not save simulator configuration."})
 		return
 	}
-	result := s.configuration
+	result := s.configurationViewLocked()
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) createProviderConnection(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeConfigurationSession(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Admin configuration session is missing or expired."})
+		return
+	}
+	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
+	if provider != "stripe" && provider != "barion" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Provider must be stripe or barion."})
+		return
+	}
+	s.mu.Lock()
+	previous := s.configuration
+	if !s.providerConnectedLocked(provider) {
+		if provider == "stripe" {
+			s.configuration.StripeCredential = "sk_test_" + randomHex(24)
+		} else {
+			s.configuration.BarionCredential = randomGUID()
+		}
+		if err := s.persistLocked(); err != nil {
+			s.configuration = previous
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not save the provider test connection."})
+			return
+		}
+	}
+	result := s.configurationViewLocked()
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, result)
 }
@@ -175,9 +235,58 @@ func (s *Server) cleanupConfigurationAccessLocked(now time.Time) {
 	}
 }
 
-func (s *Server) writeConfiguration(w http.ResponseWriter) {
+func (s *Server) writeConfigurationView(w http.ResponseWriter) {
 	s.mu.RLock()
-	result := s.configuration
+	result := s.configurationViewLocked()
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) configurationViewLocked() simulatorConfigurationView {
+	return simulatorConfigurationView{
+		Provider:    s.configuration.Provider,
+		Requires3DS: s.configuration.Requires3DS,
+		Connections: map[string]providerConnectionView{
+			"stripe": connectionView(s.configuration.StripeCredential),
+			"barion": connectionView(s.configuration.BarionCredential),
+		},
+	}
+}
+
+func (s *Server) privateConfigurationLocked() privateSimulatorConfiguration {
+	provider := strings.ToLower(strings.TrimSpace(s.configuration.Provider))
+	credential := s.providerCredentialLocked(provider)
+	return privateSimulatorConfiguration{
+		Provider:    provider,
+		Requires3DS: provider != "none" && s.configuration.Requires3DS,
+		Connected:   provider == "none" || credential != "",
+		Credential:  credential,
+	}
+}
+
+func (s *Server) providerConnectedLocked(provider string) bool {
+	return s.providerCredentialLocked(provider) != ""
+}
+
+func (s *Server) providerCredentialLocked(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "stripe":
+		return strings.TrimSpace(s.configuration.StripeCredential)
+	case "barion":
+		return strings.TrimSpace(s.configuration.BarionCredential)
+	default:
+		return ""
+	}
+}
+
+func connectionView(credential string) providerConnectionView {
+	credential = strings.TrimSpace(credential)
+	if credential == "" {
+		return providerConnectionView{}
+	}
+	maskSuffix := credential
+	if len(maskSuffix) > 4 {
+		maskSuffix = maskSuffix[len(maskSuffix)-4:]
+	}
+	return providerConnectionView{Connected: true, CredentialMask: "•••• " + maskSuffix}
 }

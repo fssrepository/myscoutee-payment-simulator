@@ -350,6 +350,24 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 		return
 	}
 	previous := cloneBarionPayment(payment)
+	if bankChallenge && barionAuthorizationTimedOut(payment, s.now().UTC()) {
+		payment.Status = "Expired"
+		payment.CompletedAt = s.now().UTC().Format(time.RFC3339)
+		payment.LastOperation = "3ds_timeout"
+		for index := range payment.Transactions {
+			payment.Transactions[index].Status = "Failed"
+		}
+		if err := s.persistLocked(); err != nil {
+			*s.barionPayments[paymentID] = *previous
+			s.mu.Unlock()
+			http.Error(w, "Could not persist bank authentication timeout.", http.StatusInternalServerError)
+			return
+		}
+		s.mu.Unlock()
+		s.deliverBarionCallback(paymentID)
+		http.Error(w, "The three-minute bank authentication window has expired.", http.StatusGone)
+		return
+	}
 	redirectURL := payment.RedirectURL
 	switch outcome {
 	case "authorize":

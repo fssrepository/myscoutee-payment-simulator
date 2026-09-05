@@ -44,7 +44,8 @@ func (s *Server) loadState() error {
 	}
 	if state.Configuration.Provider == "none" || state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
 		s.configuration = state.Configuration
-		if s.configuration.Provider == "none" {
+		if s.configuration.Provider == "none" || !s.providerConnectedLocked(s.configuration.Provider) {
+			s.configuration.Provider = "none"
 			s.configuration.Requires3DS = false
 		}
 	}

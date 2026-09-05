@@ -112,6 +112,59 @@ func TestConfigurationAcceptsNoneProviderForCashOnly(t *testing.T) {
 	}
 }
 
+func TestProviderConnectionMustBeGeneratedBeforeActivationAndSecretStaysPrivate(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	cookie := configurationSessionCookie(t, server)
+	activate := func() *httptest.ResponseRecorder {
+		request := httptest.NewRequest(
+			http.MethodPut,
+			"/configuration-session",
+			strings.NewReader(`{"provider":"stripe","requires3ds":true}`),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		return response
+	}
+
+	if response := activate(); response.Code != http.StatusConflict {
+		t.Fatalf("unconnected provider activation returned %d: %s", response.Code, response.Body.String())
+	}
+
+	connectionRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/configuration-session/providers/stripe/connection",
+		nil,
+	)
+	connectionRequest.AddCookie(cookie)
+	connectionResponse := httptest.NewRecorder()
+	server.ServeHTTP(connectionResponse, connectionRequest)
+	if connectionResponse.Code != http.StatusOK {
+		t.Fatalf("provider connection returned %d: %s", connectionResponse.Code, connectionResponse.Body.String())
+	}
+	if strings.Contains(connectionResponse.Body.String(), "sk_test_") {
+		t.Fatalf("admin-safe connection response leaked the test credential: %s", connectionResponse.Body.String())
+	}
+	if response := activate(); response.Code != http.StatusOK {
+		t.Fatalf("connected provider activation returned %d: %s", response.Code, response.Body.String())
+	}
+
+	privateRequest := httptest.NewRequest(http.MethodGet, "/myscoutee/v1/configuration", nil)
+	privateRequest.Header.Set("Authorization", "Bearer sk_test_myscoutee")
+	privateResponse := httptest.NewRecorder()
+	server.ServeHTTP(privateResponse, privateRequest)
+	if privateResponse.Code != http.StatusOK || !strings.Contains(privateResponse.Body.String(), `"connected":true`) ||
+		!strings.Contains(privateResponse.Body.String(), `"credential":"sk_test_`) {
+		t.Fatalf("private server configuration returned %d: %s", privateResponse.Code, privateResponse.Body.String())
+	}
+}
+
 func configurationSessionCookie(t *testing.T, server *Server) *http.Cookie {
 	t.Helper()
 	accessRequest := httptest.NewRequest(http.MethodPost, "/myscoutee/v1/configuration-access", nil)

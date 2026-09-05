@@ -37,17 +37,18 @@
     const details = document.createElement('div');
     details.append(text('h2', `${item.provider.toUpperCase()} · ${formatAmount(item)}`));
     const list = document.createElement('dl');
+    if (item.userReference) row('Member', item.userReference, list);
     row('Reference', item.reference || item.id, list);
     row('Created', new Date(Number(item.created) * 1000).toLocaleString(), list);
     details.append(list);
     const actions = document.createElement('div');
     actions.className = 'actions';
-    const approve = text('button', 'Approve');
-    const decline = text('button', 'Decline');
-    decline.className = 'danger';
-    approve.addEventListener('click', () => apply(item.approveUrl, approve, decline));
-    decline.addEventListener('click', () => apply(item.declineUrl, approve, decline));
-    actions.append(approve, decline);
+    const open = text('button', 'Open confirmation');
+    open.addEventListener('click', () => {
+      if (!item.reviewUrl) return;
+      window.open(item.reviewUrl, '_blank', 'noopener,noreferrer');
+    });
+    actions.append(open);
     article.append(details, actions);
     return article;
   }
@@ -90,19 +91,6 @@
       showMessage(error.message || 'Could not load pending confirmations.', true);
     } finally {
       loading = false;
-    }
-  }
-
-  async function apply(url, ...buttons) {
-    buttons.forEach(button => { button.disabled = true; });
-    showMessage('Updating payment confirmation...');
-    try {
-      await request(url, { method: 'POST' });
-      showMessage('Payment confirmation updated.');
-      await refresh();
-    } catch (error) {
-      showMessage(error.message || 'Could not update the payment confirmation.', true);
-      buttons.forEach(button => { button.disabled = false; });
     }
   }
 

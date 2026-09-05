@@ -192,7 +192,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		strings.HasPrefix(r.URL.Path, "/authorization-access/") ||
 		strings.HasPrefix(r.URL.Path, "/payment-wait/") ||
 		strings.HasPrefix(r.URL.Path, "/simulator-ui/") {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors http://localhost:* http://127.0.0.1:*")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:*")
 	} else {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
@@ -227,7 +227,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
-	if !constantTimeEqual(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), s.config.APIKey) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -356,7 +356,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAPI(r) || strings.HasPrefix(r.Header.Get("Authorization"), "Bearer sk_live_") {
+	if !s.authorizeStripeProvider(r) || strings.HasPrefix(r.Header.Get("Authorization"), "Bearer sk_live_") {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -477,7 +477,7 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) retrieveSession(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAPI(r) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -492,7 +492,7 @@ func (s *Server) retrieveSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) retrievePaymentIntent(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAPI(r) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -515,7 +515,7 @@ func (s *Server) cancelPaymentIntent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) mutatePaymentIntent(w http.ResponseWriter, r *http.Request, operation string) {
-	if !s.authorizeAPI(r) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -786,6 +786,27 @@ func (s *Server) applyBankOutcome(w http.ResponseWriter, r *http.Request) {
 	}
 	previousSession := *cloneSession(session)
 	previousIntent := *clonePaymentIntent(intent)
+	if stripeAuthorizationTimedOut(intent, s.now().UTC()) {
+		session.Status = "expired"
+		session.PaymentStatus = "unpaid"
+		intent.Status = "canceled"
+		intent.CancellationReason = "abandoned"
+		intent.NextAction = nil
+		event := s.newEventLocked("payment_intent.canceled", intent, session.IdempotencyKey)
+		if err := s.persistLocked(); err != nil {
+			*session = previousSession
+			*intent = previousIntent
+			delete(s.events, event.ID)
+			s.eventOrder = s.eventOrder[:len(s.eventOrder)-1]
+			s.mu.Unlock()
+			http.Error(w, "Could not persist bank authentication timeout.", http.StatusInternalServerError)
+			return
+		}
+		s.mu.Unlock()
+		s.deliver(event)
+		http.Error(w, "The three-minute bank authentication window has expired.", http.StatusGone)
+		return
+	}
 	var events []*WebhookEvent
 	var redirectURL string
 	switch outcome {
@@ -987,6 +1008,7 @@ func (s *Server) deliver(event *WebhookEvent) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Stripe-Signature", fmt.Sprintf("t=%d,v1=%s", timestamp, signature))
+	req.Header.Set("X-App-Session-Kind", "demo")
 	response, err := s.client.Do(req)
 	if err != nil {
 		s.recordDelivery(event.ID, 0, err)

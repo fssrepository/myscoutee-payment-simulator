@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSavedCard3DSUsesWaitingSurfaceAndAdminAuthorizationSurface(t *testing.T) {
@@ -68,11 +69,52 @@ func TestSavedCard3DSUsesWaitingSurfaceAndAdminAuthorizationSurface(t *testing.T
 		Pending []pendingAuthorization `json:"pending"`
 	}
 	decodeJSON(t, pendingResponse.Body.Bytes(), &state)
-	if len(state.Pending) != 1 || !strings.Contains(state.Pending[0].ApproveURL, "/test/bank-auth/") {
+	if len(state.Pending) != 1 || !strings.Contains(state.Pending[0].ReviewURL, "/bank-auth/") {
 		t.Fatalf("pending authorizations = %+v", state.Pending)
 	}
-	if strings.Contains(state.Pending[0].ApproveURL, "/payment-wait/") {
-		t.Fatalf("admin action URL points to member waiting surface: %s", state.Pending[0].ApproveURL)
+	if strings.Contains(state.Pending[0].ReviewURL, "/payment-wait/") {
+		t.Fatalf("admin action URL points to member waiting surface: %s", state.Pending[0].ReviewURL)
+	}
+}
+
+func TestPaymentAuthorizationCountsDownFromProviderDeadlineAndExpires(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	now := time.Date(2026, time.September, 5, 10, 0, 0, 0, time.UTC)
+	server.now = func() time.Time { return now }
+
+	server.mu.Lock()
+	server.configuration = SimulatorConfiguration{Provider: "stripe", Requires3DS: true}
+	server.mu.Unlock()
+	form := url.Values{
+		"amount": {"490000"}, "currency": {"huf"},
+		"payment_method": {"pm_sim_seed_alex_1881"}, "capture_method": {"manual"},
+		"confirm": {"true"}, "return_url": {"http://localhost/game?payment=success"},
+	}
+	createResponse := httptest.NewRecorder()
+	server.ServeHTTP(createResponse, authenticatedFormRequest(http.MethodPost, "/v1/payment_intents", form, "3ds-timeout-001"))
+	if createResponse.Code != http.StatusOK {
+		t.Fatalf("create payment intent returned %d: %s", createResponse.Code, createResponse.Body.String())
+	}
+	var intent PaymentIntent
+	decodeJSON(t, createResponse.Body.Bytes(), &intent)
+	waitingURL, err := url.Parse(intent.NextAction.RedirectToURL.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(3*time.Minute + time.Second)
+	statusResponse := httptest.NewRecorder()
+	server.ServeHTTP(statusResponse, httptest.NewRequest(http.MethodGet,
+		strings.Replace(waitingURL.RequestURI(), "/payment-wait/stripe/", "/public/payment-authorizations/stripe/", 1), nil))
+	if statusResponse.Code != http.StatusOK || !strings.Contains(statusResponse.Body.String(), `"status":"expired"`) {
+		t.Fatalf("expired authorization status returned %d: %s", statusResponse.Code, statusResponse.Body.String())
+	}
+	if !strings.Contains(statusResponse.Body.String(), `"expiresAt":`) {
+		t.Fatalf("authorization status omitted countdown deadline: %s", statusResponse.Body.String())
 	}
 }
 

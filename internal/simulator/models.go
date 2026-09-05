@@ -148,8 +148,10 @@ type persistedState struct {
 // deliberately contains no gateway infrastructure controls: MyScoutee still
 // exercises its real Stripe/Barion adapters against this development service.
 type SimulatorConfiguration struct {
-	Provider    string `json:"provider"`
-	Requires3DS bool   `json:"requires3ds"`
+	Provider         string `json:"provider"`
+	Requires3DS      bool   `json:"requires3ds"`
+	StripeCredential string `json:"-"`
+	BarionCredential string `json:"-"`
 }
 
 // PaymentMethodRegistration is the provider-side result of a saved-card

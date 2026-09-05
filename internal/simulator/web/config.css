@@ -11,15 +11,22 @@ p { margin: 0; color: #53657e; line-height: 1.55; }
 .settings-card { display: grid; gap: 1rem; border: 1px solid #cdd9e8; border-radius: 1.1rem; padding: clamp(1rem, 4vw, 1.45rem); background: rgba(255,255,255,.94); box-shadow: 0 1rem 2.4rem rgba(39,61,92,.12); }
 fieldset { display: grid; gap: .65rem; margin: 0; border: 0; padding: 0; }
 legend { margin-bottom: .55rem; font-size: .78rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; color: #53657e; }
-.choice, .switch-row { display: flex; align-items: center; gap: .8rem; min-height: 4rem; border: 1px solid #d6dfeb; border-radius: .8rem; padding: .8rem .9rem; cursor: pointer; }
+.choice, .switch-row { display: flex; align-items: center; gap: .8rem; min-height: 4rem; border: 1px solid #d6dfeb; border-radius: .8rem; padding: .8rem .9rem; }
+.choice-select { display: flex; align-items: center; gap: .8rem; flex: 1; align-self: stretch; cursor: pointer; }
 .choice:has(input:checked), .switch-row:has(input:checked) { border-color: #4c83ca; background: #edf5ff; box-shadow: 0 0 0 2px rgba(76,131,202,.12); }
 .choice input { width: 1.15rem; height: 1.15rem; accent-color: #376cb1; }
-.choice span, .switch-row span { display: grid; flex: 1; gap: .16rem; }
+.choice-select span, .switch-row span { display: grid; flex: 1; gap: .16rem; }
 strong { color: #172640; }
 small { color: #63758d; line-height: 1.35; }
 .switch-row input { width: 2.8rem; height: 1.45rem; accent-color: #376cb1; }
 button { min-height: 2.85rem; border: 0; border-radius: .75rem; padding: .7rem 1rem; color: #fff; background: #376cb1; font: inherit; font-weight: 800; cursor: pointer; }
 button:disabled { opacity: .55; cursor: wait; }
+.connection-button { flex: none; min-height: 2.35rem; border: 1px solid #83abd9; border-radius: 999px; padding: .5rem .8rem; color: #245b97; background: #f3f8ff; font-size: .78rem; white-space: nowrap; }
+.connection-button.connected { border-color: #a8d9bd; color: #23714a; background: #edf9f2; cursor: default; opacity: 1; }
 .message { min-height: 1.4rem; color: #27724b; font-weight: 750; }
 .message.error { color: #a33b32; }
 .boundary { padding: 0 .2rem; font-size: .78rem; }
+@media (max-width: 34rem) {
+  .choice { align-items: stretch; flex-direction: column; }
+  .connection-button { align-self: flex-end; }
+}

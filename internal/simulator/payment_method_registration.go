@@ -119,7 +119,7 @@ func (s *Server) revokePaymentMethod(w http.ResponseWriter, r *http.Request) {
 func (s *Server) paymentMethodUIAsset(w http.ResponseWriter, r *http.Request) {
 	asset := strings.TrimSpace(r.PathValue("asset"))
 	switch asset {
-	case "config.css", "config.js", "register.css", "register.js", "authorizations.css", "authorizations.js":
+	case "config.css", "config.js", "register.css", "register.js", "authorizations.css", "authorizations.js", "payment-wait.js":
 		http.ServeFileFS(w, r, paymentMethodUI, "web/"+asset)
 	default:
 		http.NotFound(w, r)
@@ -153,6 +153,11 @@ func (s *Server) createPaymentMethodRegistration(w http.ResponseWriter, r *http.
 	if request.Provider != s.configuration.Provider {
 		s.mu.Unlock()
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "Registration provider does not match the active simulator configuration."})
+		return
+	}
+	if !s.providerConnectedLocked(request.Provider) {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "The active simulator provider is not connected."})
 		return
 	}
 	if existing := s.registrations[request.RegistrationID]; existing != nil {
@@ -356,6 +361,7 @@ func (s *Server) deliverPaymentMethodRegistrationCallback(registrationID string,
 	}
 	request.Header.Set("Authorization", "Bearer "+s.config.APIKey)
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-App-Session-Kind", "demo")
 	response, err := s.client.Do(request)
 	if err != nil {
 		return
