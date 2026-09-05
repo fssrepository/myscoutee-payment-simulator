@@ -4,6 +4,7 @@
   const requires3ds = document.querySelector('#requires-3ds');
   const saveButton = document.querySelector('#save-button');
   const message = document.querySelector('#message');
+  const activeProviderLogo = document.querySelector('#active-provider-logo');
   const parentOrigin = (() => {
     try { return new URL(document.referrer).origin; } catch { return '*'; }
   })();
@@ -33,6 +34,11 @@
     const provider = selectedProvider();
     requires3ds.disabled = provider === 'none';
     if (requires3ds.disabled) requires3ds.checked = false;
+    activeProviderLogo.hidden = provider === 'none';
+    if (provider !== 'none') {
+      activeProviderLogo.src = `/simulator-ui/${provider}.svg`;
+      activeProviderLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
+    }
   }
 
   function apply(configuration) {

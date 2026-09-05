@@ -39,7 +39,7 @@ header {
   margin-bottom: 1rem;
 }
 
-.provider-mark { font-size: 1.1rem; font-weight: 800; color: var(--accent-dark); }
+.provider-logo { width: auto; height: 2rem; max-width: 8rem; object-fit: contain; }
 .test-badge { padding: .25rem .55rem; border-radius: 999px; background: #fff0c2; color: #7a4d00; font-size: .7rem; font-weight: 800; letter-spacing: .08em; }
 
 .state-card {
@@ -53,29 +53,34 @@ header {
 .hidden { display: none !important; }
 h1 { margin: 0 0 .5rem; font-size: 1.55rem; }
 .intro, .privacy { color: var(--muted); line-height: 1.5; }
+.intro { margin-bottom: 0; }
 .privacy { margin: 1rem 0 0; font-size: .78rem; }
 
-.test-cards {
+.form-header {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .65rem;
-  margin: 1rem 0 1.25rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 1rem;
+  margin-bottom: 1rem;
 }
 
-.test-card {
-  border: 1px solid var(--line);
-  border-radius: .75rem;
-  padding: .75rem;
-  background: #f8fafc;
-  color: var(--ink);
-  text-align: left;
-  cursor: pointer;
+.generate-card {
+  width: auto;
+  min-width: max-content;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, #fff);
+  color: var(--accent-dark);
 }
 
-.test-card:hover, .test-card:focus-visible { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); }
-.test-card strong, .test-card code, .test-card span { display: block; }
-.test-card code { margin: .35rem 0; font-size: .8rem; }
-.test-card span { color: var(--muted); font-size: .75rem; }
+.generate-card:hover, .generate-card:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, #fff);
+  outline: 2px solid color-mix(in srgb, var(--accent) 20%, transparent);
+}
 
 form { display: grid; gap: .55rem; }
 label { margin-top: .35rem; font-size: .8rem; font-weight: 700; }
@@ -103,7 +108,8 @@ button:disabled { cursor: wait; opacity: .62; }
 @media (max-width: 34rem) {
   .shell { padding: .75rem; }
   .state-card { padding: 1rem; }
-  .test-cards { grid-template-columns: 1fr; }
+  .form-header { grid-template-columns: 1fr; }
+  .generate-card { width: 100%; }
   .form-row { grid-template-columns: 1fr 1fr; }
   .form-row > div:last-child { grid-column: 1 / -1; }
 }

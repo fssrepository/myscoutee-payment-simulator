@@ -3,6 +3,8 @@
 body { margin: 0; min-height: 100vh; padding: clamp(1rem, 5vw, 3rem); background: radial-gradient(circle at top right, #dce9ff, transparent 42%), #eef3f9; }
 .shell { width: min(100%, 42rem); margin: 0 auto; display: grid; gap: 1rem; }
 header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.header-side { display: flex; flex-direction: column; align-items: flex-end; gap: .65rem; }
+.provider-logo { width: auto; height: 2rem; max-width: 8rem; object-fit: contain; }
 h1 { margin: .2rem 0 .35rem; font-size: clamp(1.8rem, 6vw, 2.6rem); }
 p { margin: 0; color: #53657e; line-height: 1.55; }
 .eyebrow, .test-badge { font-size: .7rem; font-weight: 850; letter-spacing: .12em; }
@@ -15,6 +17,7 @@ legend { margin-bottom: .55rem; font-size: .78rem; font-weight: 850; letter-spac
 .choice-select { display: flex; align-items: center; gap: .8rem; flex: 1; align-self: stretch; cursor: pointer; }
 .choice:has(input:checked), .switch-row:has(input:checked) { border-color: #4c83ca; background: #edf5ff; box-shadow: 0 0 0 2px rgba(76,131,202,.12); }
 .choice input { width: 1.15rem; height: 1.15rem; accent-color: #376cb1; }
+.choice-logo { width: auto; height: 1.8rem; max-width: 7.5rem; object-fit: contain; }
 .choice-select span, .switch-row span { display: grid; flex: 1; gap: .16rem; }
 strong { color: #172640; }
 small { color: #63758d; line-height: 1.35; }

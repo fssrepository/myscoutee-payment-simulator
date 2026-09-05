@@ -171,7 +171,7 @@ func (s *Server) renderPaymentWaitPage(
 ) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := paymentWaitTemplate.Execute(w, map[string]any{
-		"Provider": provider, "ID": id, "Reference": reference, "Amount": amount,
+		"Provider": provider, "ProviderSlug": strings.ToLower(provider), "ID": id, "Reference": reference, "Amount": amount,
 		"Currency": currency, "MinorUnits": minorUnits, "StatusURL": statusURL,
 	}); err != nil {
 		http.Error(w, "Could not render payment confirmation status.", http.StatusInternalServerError)

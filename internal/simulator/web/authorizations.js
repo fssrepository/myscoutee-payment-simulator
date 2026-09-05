@@ -4,6 +4,7 @@
   const message = document.querySelector('#message');
   const providerBadge = document.querySelector('#provider-badge');
   const modeBadge = document.querySelector('#mode-badge');
+  const activeProviderLogo = document.querySelector('#active-provider-logo');
   let loading = false;
   let renderedState = '';
 
@@ -35,7 +36,14 @@
     const article = document.createElement('article');
     article.className = 'authorization';
     const details = document.createElement('div');
-    details.append(text('h2', `${item.provider.toUpperCase()} · ${formatAmount(item)}`));
+    const heading = document.createElement('h2');
+    const providerLogo = document.createElement('img');
+    const provider = item.provider === 'barion' ? 'barion' : 'stripe';
+    providerLogo.className = 'authorization-provider-logo';
+    providerLogo.src = `/simulator-ui/${provider}.svg`;
+    providerLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
+    heading.append(providerLogo, text('span', formatAmount(item)));
+    details.append(heading);
     const list = document.createElement('dl');
     if (item.userReference) row('Member', item.userReference, list);
     row('Reference', item.reference || item.id, list);
@@ -62,7 +70,14 @@
     });
     if (state === renderedState) return;
     renderedState = state;
-    providerBadge.textContent = data.provider === 'none' ? 'Cash only' : data.provider.toUpperCase();
+    const provider = data.provider === 'barion' ? 'barion' : data.provider === 'stripe' ? 'stripe' : 'none';
+    providerBadge.hidden = provider !== 'none';
+    providerBadge.textContent = 'Cash only';
+    activeProviderLogo.hidden = provider === 'none';
+    if (provider !== 'none') {
+      activeProviderLogo.src = `/simulator-ui/${provider}.svg`;
+      activeProviderLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
+    }
     modeBadge.textContent = data.requires3ds ? '3DS required' : '3DS disabled';
     pending.replaceChildren();
     if (!items.length) {

@@ -11,18 +11,19 @@
   const errorBox = document.querySelector('#form-error');
   const saveButton = document.querySelector('#save-button');
   const cancelButton = document.querySelector('#cancel-button');
+  const generateButton = document.querySelector('#generate-card-button');
+  const cardholderInput = document.querySelector('#cardholder');
   const numberInput = document.querySelector('#card-number');
   const monthSelect = document.querySelector('#expiry-month');
   const yearSelect = document.querySelector('#expiry-year');
+  const securityCodeInput = document.querySelector('#security-code');
 
   const cards = {
-    stripe: [
-      { number: '4242424242424242', label: 'Stripe test card', detail: '3DS behaviour is controlled by the simulator settings.' }
-    ],
-    barion: [
-      { number: '5555555555554444', label: 'Barion test card', detail: '3DS behaviour is controlled by the simulator settings.' }
-    ]
+    stripe: { number: '4242424242424242', cardholderPrefix: 'Stripe Test User' },
+    barion: { number: '5555555555554444', cardholderPrefix: 'Barion Test User' }
   };
+  let activeProvider = 'stripe';
+  let generatedCardSequence = 0;
 
   const parentOrigin = (() => {
     try { return new URL(document.referrer).origin; } catch { return '*'; }
@@ -57,28 +58,29 @@
 
   function renderProvider(registration) {
     const provider = registration.provider === 'barion' ? 'barion' : 'stripe';
+    activeProvider = provider;
     document.body.classList.toggle('provider-barion', provider === 'barion');
-    document.querySelector('#provider-mark').textContent = provider === 'barion'
-      ? 'Barion Smart Gateway · simulator'
-      : 'Stripe · simulator';
-    const testCards = document.querySelector('#test-cards');
-    testCards.replaceChildren(...cards[provider].map(card => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'test-card';
-      const strong = document.createElement('strong');
-      strong.textContent = card.label;
-      const code = document.createElement('code');
-      code.textContent = formatNumber(card.number);
-      const span = document.createElement('span');
-      span.textContent = card.detail;
-      button.append(strong, code, span);
-      button.addEventListener('click', () => {
-        numberInput.value = formatNumber(card.number);
-        numberInput.focus();
-      });
-      return button;
-    }));
+    const providerLogo = document.querySelector('#provider-logo');
+    providerLogo.src = `/simulator-ui/${provider}.svg`;
+    providerLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
+  }
+
+  function generatedSecurityCode(sequence) {
+    return String(100 + (sequence * 137) % 900);
+  }
+
+  function generateTestCard() {
+    generatedCardSequence += 1;
+    const card = cards[activeProvider];
+    const sequenceLabel = String(generatedCardSequence).padStart(3, '0');
+    const now = new Date();
+    cardholderInput.value = `${card.cardholderPrefix} ${sequenceLabel}`;
+    numberInput.value = formatNumber(card.number);
+    monthSelect.value = String(now.getMonth() + 1);
+    yearSelect.value = String(now.getFullYear() + 3);
+    securityCodeInput.value = generatedSecurityCode(generatedCardSequence);
+    errorBox.classList.add('hidden');
+    cardholderInput.focus();
   }
 
   async function request(path, options = {}) {
@@ -125,6 +127,7 @@
   }
 
   numberInput.addEventListener('input', () => { numberInput.value = formatNumber(numberInput.value); });
+  generateButton.addEventListener('click', generateTestCard);
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -138,12 +141,12 @@
           cardNumber: numberInput.value,
           expiryMonth: Number(monthSelect.value),
           expiryYear: Number(yearSelect.value),
-          cardholderName: document.querySelector('#cardholder').value,
-          securityCode: document.querySelector('#security-code').value
+          cardholderName: cardholderInput.value,
+          securityCode: securityCodeInput.value
         })
       });
       numberInput.value = '';
-      document.querySelector('#security-code').value = '';
+      securityCodeInput.value = '';
       showResult(registration.status);
     } catch (error) {
       showError(error.message);

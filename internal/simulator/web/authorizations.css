@@ -3,6 +3,8 @@
 body { margin: 0; min-height: 100vh; padding: clamp(1rem, 5vw, 3rem); background: radial-gradient(circle at top right, #dce9ff, transparent 42%), #eef3f9; }
 .shell { width: min(100%, 48rem); margin: 0 auto; display: grid; gap: 1rem; }
 header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.header-side { display: flex; flex-direction: column; align-items: flex-end; gap: .65rem; }
+.provider-logo { width: auto; height: 2rem; max-width: 8rem; object-fit: contain; }
 h1 { margin: .2rem 0 .35rem; font-size: clamp(1.8rem, 6vw, 2.6rem); }
 p { margin: 0; color: #53657e; line-height: 1.55; }
 .eyebrow, .test-badge { font-size: .7rem; font-weight: 850; letter-spacing: .12em; }
@@ -16,7 +18,8 @@ p { margin: 0; color: #53657e; line-height: 1.55; }
 .empty, .authorization { border: 1px solid #cdd9e8; border-radius: 1rem; padding: 1.15rem; background: rgba(255,255,255,.95); box-shadow: 0 .65rem 1.7rem rgba(39,61,92,.09); }
 .empty { min-height: 13rem; display: grid; place-items: center; text-align: center; color: #63758d; font-weight: 750; }
 .authorization { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .8rem 1rem; }
-.authorization h2 { margin: 0 0 .35rem; font-size: 1.05rem; }
+.authorization h2 { display: flex; align-items: center; gap: .65rem; margin: 0 0 .35rem; font-size: 1.05rem; }
+.authorization-provider-logo { width: auto; height: 1.2rem; max-width: 5rem; object-fit: contain; }
 .authorization dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .55rem; margin: 0; color: #53657e; font-size: .8rem; }
 .authorization dt { font-weight: 800; }
 .authorization dd { margin: 0; overflow-wrap: anywhere; }

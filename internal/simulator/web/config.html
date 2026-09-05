@@ -14,7 +14,10 @@
         <h1>Payment simulator</h1>
         <p>Choose the external provider surface and whether the next payments require bank confirmation.</p>
       </div>
-      <span class="test-badge">TEST ONLY</span>
+      <div class="header-side">
+        <img class="provider-logo" id="active-provider-logo" alt="" hidden>
+        <span class="test-badge">TEST ONLY</span>
+      </div>
     </header>
 
     <form id="configuration-form" class="settings-card">
@@ -28,14 +31,14 @@
         </div>
         <div class="choice">
           <label class="choice-select">
-            <input type="radio" name="provider" value="stripe">
-            <span><strong>Stripe</strong><small>Use the Stripe registration and payment branch.</small></span>
+            <input type="radio" name="provider" value="stripe" aria-label="Stripe">
+            <img class="choice-logo" src="/simulator-ui/stripe.svg" alt="Stripe">
           </label>
         </div>
         <div class="choice">
           <label class="choice-select">
-            <input type="radio" name="provider" value="barion">
-            <span><strong>Barion</strong><small>Use the Barion registration and payment branch.</small></span>
+            <input type="radio" name="provider" value="barion" aria-label="Barion">
+            <img class="choice-logo" src="/simulator-ui/barion.svg" alt="Barion">
           </label>
         </div>
       </fieldset>

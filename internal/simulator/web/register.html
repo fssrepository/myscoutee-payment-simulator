@@ -9,8 +9,8 @@
 <body>
   <main class="shell" aria-live="polite">
     <header>
-      <div class="provider-mark" id="provider-mark">Payment simulator</div>
       <span class="test-badge">TEST ONLY</span>
+      <img class="provider-logo" id="provider-logo" src="/simulator-ui/stripe.svg" alt="Stripe">
     </header>
 
     <section id="loading" class="state-card">
@@ -19,10 +19,16 @@
     </section>
 
     <section id="form-panel" class="state-card hidden">
-      <h1>Save a card</h1>
-      <p class="intro">This screen represents the external payment provider. Only the test card numbers below are accepted.</p>
-
-      <div class="test-cards" id="test-cards"></div>
+      <div class="form-header">
+        <div>
+          <h1>Save a card</h1>
+          <p class="intro">This screen represents the external payment provider. Generate a complete valid test card or enter its details manually.</p>
+        </div>
+        <button class="generate-card" id="generate-card-button" type="button">
+          <span aria-hidden="true">&#8635;</span>
+          Generate test card
+        </button>
+      </div>
 
       <form id="card-form" autocomplete="off" novalidate>
         <label for="cardholder">Name on card</label>
