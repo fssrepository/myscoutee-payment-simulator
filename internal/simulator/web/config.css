@@ -7,9 +7,7 @@ header { display: flex; align-items: flex-start; justify-content: space-between;
 .provider-logo { width: auto; height: 2rem; max-width: 8rem; object-fit: contain; }
 h1 { margin: .2rem 0 .35rem; font-size: clamp(1.8rem, 6vw, 2.6rem); }
 p { margin: 0; color: #53657e; line-height: 1.55; }
-.eyebrow, .test-badge { font-size: .7rem; font-weight: 850; letter-spacing: .12em; }
-.eyebrow { color: #376cb1; }
-.test-badge { flex: none; border-radius: 999px; padding: .42rem .65rem; color: #9b3f18; background: #fff0d9; }
+.eyebrow { color: #376cb1; font-size: .7rem; font-weight: 850; letter-spacing: .12em; }
 .settings-card { display: grid; gap: 1rem; border: 1px solid #cdd9e8; border-radius: 1.1rem; padding: clamp(1rem, 4vw, 1.45rem); background: rgba(255,255,255,.94); box-shadow: 0 1rem 2.4rem rgba(39,61,92,.12); }
 fieldset { display: grid; gap: .65rem; margin: 0; border: 0; padding: 0; }
 legend { margin-bottom: .55rem; font-size: .78rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; color: #53657e; }

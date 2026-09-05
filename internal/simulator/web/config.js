@@ -33,11 +33,13 @@
     const provider = selectedProvider();
     requires3ds.disabled = provider === 'none';
     if (requires3ds.disabled) requires3ds.checked = false;
-    activeProviderLogo.hidden = provider === 'none';
-    if (provider !== 'none') {
-      activeProviderLogo.src = `/simulator-ui/${provider}.svg`;
-      activeProviderLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
-    }
+    const providerPresentation = {
+      none: { asset: 'cash-only.svg', label: 'Cash only' },
+      stripe: { asset: 'stripe.svg', label: 'Stripe' },
+      barion: { asset: 'barion.svg', label: 'Barion' }
+    }[provider];
+    activeProviderLogo.src = `/simulator-ui/${providerPresentation.asset}`;
+    activeProviderLogo.alt = providerPresentation.label;
   }
 
   function apply(configuration) {

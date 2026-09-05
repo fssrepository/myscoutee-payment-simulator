@@ -15,8 +15,7 @@
         <p>Choose the external provider surface and whether the next payments require bank confirmation.</p>
       </div>
       <div class="header-side">
-        <img class="provider-logo" id="active-provider-logo" alt="" hidden>
-        <span class="test-badge">TEST ONLY</span>
+        <img class="provider-logo" id="active-provider-logo" src="/simulator-ui/cash-only.svg" alt="Cash only">
       </div>
     </header>
 
@@ -25,8 +24,8 @@
         <legend>Provider</legend>
         <div class="choice">
           <label class="choice-select">
-            <input type="radio" name="provider" value="none">
-            <span><strong>Cash only</strong></span>
+            <input type="radio" name="provider" value="none" aria-label="Cash only">
+            <img class="choice-logo" src="/simulator-ui/cash-only.svg" alt="Cash only">
           </label>
         </div>
         <div class="choice">

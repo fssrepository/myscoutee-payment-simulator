@@ -39,10 +39,18 @@ func TestRegistrationGeneratorFillsEveryCardField(t *testing.T) {
 }
 
 func TestProviderLogosAreEmbeddedAcrossSimulatorSurfaces(t *testing.T) {
-	for _, asset := range []string{"web/stripe.svg", "web/barion.svg"} {
+	for _, asset := range []string{"web/stripe.svg", "web/barion.svg", "web/cash-only.svg"} {
 		if content := embeddedText(t, asset); !strings.Contains(content, "<svg") {
 			t.Fatalf("provider logo %s is not an SVG", asset)
 		}
+	}
+
+	configurationDocument := embeddedText(t, "web/config.html")
+	if strings.Count(configurationDocument, "/simulator-ui/cash-only.svg") != 2 {
+		t.Fatal("configuration page must show the Cash only logo in the header and provider list")
+	}
+	if strings.Contains(configurationDocument, "TEST ONLY") || strings.Contains(configurationDocument, "test-badge") {
+		t.Fatal("configuration page still renders the obsolete TEST ONLY badge")
 	}
 
 	for _, surface := range []string{
