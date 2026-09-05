@@ -10,8 +10,7 @@
   })();
   let currentConfiguration = {
     provider: 'none',
-    requires3ds: false,
-    connections: {}
+    requires3ds: false
   };
 
   function showMessage(text, error = false) {
@@ -46,8 +45,7 @@
       provider: ['none', 'stripe', 'barion'].includes(configuration.provider)
         ? configuration.provider
         : 'none',
-      requires3ds: configuration.requires3ds === true,
-      connections: configuration.connections || {}
+      requires3ds: configuration.requires3ds === true
     };
     const provider = currentConfiguration.provider;
     const input = form.querySelector(`input[name="provider"][value="${provider}"]`);
@@ -80,7 +78,7 @@
       }));
       showMessage(provider === 'none'
         ? 'Cash-only test configuration saved.'
-        : 'Test configuration saved and connected. New registrations and payments will use this provider.');
+        : 'Test configuration saved. New registrations and payments will use this provider.');
     } catch (error) {
       showMessage(error.message || 'Could not save test configuration.', true);
     } finally {
