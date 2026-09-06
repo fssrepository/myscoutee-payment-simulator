@@ -38,16 +38,20 @@ func TestRegistrationGeneratorFillsEveryCardField(t *testing.T) {
 	}
 }
 
-func TestProviderLogosAreEmbeddedAcrossSimulatorSurfaces(t *testing.T) {
-	for _, asset := range []string{"web/stripe.svg", "web/barion.svg", "web/cash-only.svg"} {
+func TestProviderBrandingAcrossSimulatorSurfaces(t *testing.T) {
+	for _, asset := range []string{"web/stripe.svg", "web/barion.svg"} {
 		if content := embeddedText(t, asset); !strings.Contains(content, "<svg") {
 			t.Fatalf("provider logo %s is not an SVG", asset)
 		}
 	}
 
 	configurationDocument := embeddedText(t, "web/config.html")
-	if strings.Count(configurationDocument, "/simulator-ui/cash-only.svg") != 2 {
-		t.Fatal("configuration page must show the Cash only logo in the header and provider list")
+	if strings.Contains(configurationDocument, "cash-only.svg") {
+		t.Fatal("configuration page still uses the obsolete Cash Only icon asset")
+	}
+	if strings.Count(configurationDocument, ` cash-only-wordmark"`) != 2 ||
+		strings.Count(configurationDocument, ">Cash Only</span>") != 2 {
+		t.Fatal("configuration page must show the text-only Cash Only wordmark in the header and provider list")
 	}
 	if strings.Contains(configurationDocument, "TEST ONLY") || strings.Contains(configurationDocument, "test-badge") {
 		t.Fatal("configuration page still renders the obsolete TEST ONLY badge")

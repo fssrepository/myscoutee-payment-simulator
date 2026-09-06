@@ -5,6 +5,7 @@
   const saveButton = document.querySelector('#save-button');
   const message = document.querySelector('#message');
   const activeProviderLogo = document.querySelector('#active-provider-logo');
+  const activeCashOnlyWordmark = document.querySelector('#active-cash-only-wordmark');
   const parentOrigin = (() => {
     try { return new URL(document.referrer).origin; } catch { return '*'; }
   })();
@@ -33,13 +34,13 @@
     const provider = selectedProvider();
     requires3ds.disabled = provider === 'none';
     if (requires3ds.disabled) requires3ds.checked = false;
-    const providerPresentation = {
-      none: { asset: 'cash-only.svg', label: 'Cash only' },
-      stripe: { asset: 'stripe.svg', label: 'Stripe' },
-      barion: { asset: 'barion.svg', label: 'Barion' }
-    }[provider];
-    activeProviderLogo.src = `/simulator-ui/${providerPresentation.asset}`;
-    activeProviderLogo.alt = providerPresentation.label;
+    const cashOnly = provider === 'none';
+    activeCashOnlyWordmark.hidden = !cashOnly;
+    activeProviderLogo.hidden = cashOnly;
+    if (!cashOnly) {
+      activeProviderLogo.src = `/simulator-ui/${provider}.svg`;
+      activeProviderLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
+    }
   }
 
   function apply(configuration) {
