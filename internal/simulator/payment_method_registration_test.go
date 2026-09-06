@@ -186,3 +186,62 @@ func TestPaymentMethodRegistration3DSTimesOutAfterThreeMinutes(t *testing.T) {
 		t.Fatal("timeout did not emit the terminal callback")
 	}
 }
+
+func TestPaymentMethodFixturesReplaceEverySeededCardAndRestoreRevokedCards(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	payload := `{"payment_methods":[
+		{"provider":"stripe","provider_token":"pm_sim_seed_alex_4242","brand":"Visa","last4":"4242","expiry_month":12,"expiry_year":2029,"cardholder_name":"ALEX TURNER"},
+		{"provider":"stripe","provider_token":"pm_sim_seed_alex_1881","brand":"Visa","last4":"1881","expiry_month":8,"expiry_year":2030,"cardholder_name":"ALEX TURNER"},
+		{"provider":"stripe","provider_token":"pm_sim_seed_alex_expired_0008","brand":"Visa","last4":"0008","expiry_month":8,"expiry_year":2026,"cardholder_name":"ALEX TURNER"}
+	]}`
+	replaceFixtures := func() {
+		request := httptest.NewRequest(
+			http.MethodPut,
+			"/myscoutee/v1/test-fixtures/payment-methods",
+			strings.NewReader(payload))
+		request.Header.Set("Authorization", "Bearer sk_test_myscoutee")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"payment_methods":3`) {
+			t.Fatalf("fixture replacement returned %d: %s", response.Code, response.Body.String())
+		}
+	}
+
+	replaceFixtures()
+	for _, token := range []string{
+		"pm_sim_seed_alex_4242",
+		"pm_sim_seed_alex_1881",
+		"pm_sim_seed_alex_expired_0008",
+	} {
+		server.mu.RLock()
+		method := server.reusablePaymentMethodLocked("stripe", token)
+		server.mu.RUnlock()
+		if method == nil || method.ProviderToken != token {
+			t.Fatalf("fixture card %q was not reusable: %+v", token, method)
+		}
+	}
+
+	revoke := httptest.NewRequest(
+		http.MethodDelete,
+		"/myscoutee/v1/payment-methods/stripe/pm_sim_seed_alex_expired_0008",
+		nil)
+	revoke.Header.Set("Authorization", "Bearer sk_test_myscoutee")
+	revokeResponse := httptest.NewRecorder()
+	server.ServeHTTP(revokeResponse, revoke)
+	if revokeResponse.Code != http.StatusNoContent {
+		t.Fatalf("fixture revoke returned %d: %s", revokeResponse.Code, revokeResponse.Body.String())
+	}
+
+	replaceFixtures()
+	server.mu.RLock()
+	restored := server.reusablePaymentMethodLocked("stripe", "pm_sim_seed_alex_expired_0008")
+	server.mu.RUnlock()
+	if restored == nil || restored.Status != "completed" {
+		t.Fatalf("fixture replacement did not restore revoked card: %+v", restored)
+	}
+}

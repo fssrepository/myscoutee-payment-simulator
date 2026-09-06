@@ -30,6 +30,20 @@ type completePaymentMethodRegistrationRequest struct {
 	SecurityCode   string `json:"securityCode"`
 }
 
+type paymentMethodFixtureRequest struct {
+	Provider       string `json:"provider"`
+	ProviderToken  string `json:"provider_token"`
+	Brand          string `json:"brand"`
+	Last4          string `json:"last4"`
+	ExpiryMonth    int    `json:"expiry_month"`
+	ExpiryYear     int    `json:"expiry_year"`
+	CardholderName string `json:"cardholder_name"`
+}
+
+type replacePaymentMethodFixturesRequest struct {
+	PaymentMethods []paymentMethodFixtureRequest `json:"payment_methods"`
+}
+
 type simulatorCardProfile struct {
 	Provider string
 	Brand    string
@@ -54,6 +68,72 @@ func (s *Server) paymentMethodRegistrationRoutes() {
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/complete", s.completePaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/cancel", s.cancelPaymentMethodRegistration)
 	s.mux.HandleFunc("POST /test/payment-method-registrations/{registrationID}/{outcome}", s.applyPaymentMethodRegistrationAuthorization)
+	s.mux.HandleFunc("PUT /myscoutee/v1/test-fixtures/payment-methods", s.replacePaymentMethodFixtures)
+}
+
+func (s *Server) replacePaymentMethodFixtures(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeAPI(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid test API key."})
+		return
+	}
+	var request replacePaymentMethodFixturesRequest
+	if err := decodeStrictJSON(r, &request); err != nil || len(request.PaymentMethods) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Payment method fixtures are required."})
+		return
+	}
+
+	fixtures := make(map[string]*PaymentMethodRegistration, len(request.PaymentMethods))
+	for _, value := range request.PaymentMethods {
+		provider := strings.ToLower(strings.TrimSpace(value.Provider))
+		providerToken := strings.TrimSpace(value.ProviderToken)
+		last4 := strings.TrimSpace(value.Last4)
+		if (provider != "stripe" && provider != "barion") || providerToken == "" || len(last4) != 4 ||
+			value.ExpiryMonth < 1 || value.ExpiryMonth > 12 || value.ExpiryYear < 2000 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A payment method fixture is invalid."})
+			return
+		}
+		fixtureID := "seed_" + providerToken
+		if _, duplicate := fixtures[fixtureID]; duplicate {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "Payment method fixture tokens must be unique."})
+			return
+		}
+		fixtures[fixtureID] = &PaymentMethodRegistration{
+			ID:             fixtureID,
+			Provider:       provider,
+			Status:         "completed",
+			ProviderToken:  providerToken,
+			Brand:          strings.TrimSpace(value.Brand),
+			Last4:          last4,
+			ExpiryMonth:    value.ExpiryMonth,
+			ExpiryYear:     value.ExpiryYear,
+			CardholderName: strings.TrimSpace(value.CardholderName),
+		}
+	}
+
+	s.mu.Lock()
+	previous := make(map[string]*PaymentMethodRegistration)
+	for id, registration := range s.registrations {
+		if strings.HasPrefix(id, "seed_") {
+			previous[id] = registration
+			delete(s.registrations, id)
+		}
+	}
+	for id, registration := range fixtures {
+		s.registrations[id] = registration
+	}
+	if err := s.persistLocked(); err != nil {
+		for id := range fixtures {
+			delete(s.registrations, id)
+		}
+		for id, registration := range previous {
+			s.registrations[id] = registration
+		}
+		s.mu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not replace payment method fixtures."})
+		return
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]int{"payment_methods": len(fixtures)})
 }
 
 func (s *Server) revokePaymentMethod(w http.ResponseWriter, r *http.Request) {
@@ -535,6 +615,8 @@ func simulatorSeedPaymentMethod(provider string, providerToken string) *PaymentM
 		return &PaymentMethodRegistration{Provider: "stripe", ProviderToken: providerToken, Status: "completed", Brand: "Visa", Last4: "4242"}
 	case "pm_sim_seed_alex_1881":
 		return &PaymentMethodRegistration{Provider: "stripe", ProviderToken: providerToken, Status: "completed", Brand: "Visa", Last4: "1881"}
+	case "pm_sim_seed_alex_expired_0008":
+		return &PaymentMethodRegistration{Provider: "stripe", ProviderToken: providerToken, Status: "completed", Brand: "Visa", Last4: "0008", ExpiryMonth: 8, ExpiryYear: 2026, CardholderName: "ALEX TURNER"}
 	default:
 		return nil
 	}
