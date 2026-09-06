@@ -39,20 +39,41 @@ func (s *Server) loadState() error {
 	if state.BarionRequestIndex != nil {
 		s.barionRequestIndex = state.BarionRequestIndex
 	}
+	if state.Registrations != nil {
+		s.registrations = state.Registrations
+	}
+	if state.GeneratedCardSequences != nil {
+		s.generatedCardSequences = state.GeneratedCardSequences
+	}
+	configurationMigrated := false
+	if state.Configuration.Provider == "none" || state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
+		s.configuration = state.Configuration
+		if s.configuration.Provider == "none" {
+			s.configuration.Requires3DS = false
+		} else {
+			configurationMigrated = s.ensureProviderConnectionLocked(s.configuration.Provider)
+		}
+	}
 	s.eventOrder = append([]string(nil), state.EventOrder...)
+	if configurationMigrated {
+		return s.persistLocked()
+	}
 	return nil
 }
 
 func (s *Server) persistLocked() error {
 	var payload strings.Builder
 	state := persistedState{
-		Sessions:           s.sessions,
-		Intents:            s.intents,
-		Idempotency:        s.idempotency,
-		Events:             s.events,
-		EventOrder:         s.eventOrder,
-		BarionPayments:     s.barionPayments,
-		BarionRequestIndex: s.barionRequestIndex,
+		Sessions:               s.sessions,
+		Intents:                s.intents,
+		Idempotency:            s.idempotency,
+		Events:                 s.events,
+		EventOrder:             s.eventOrder,
+		BarionPayments:         s.barionPayments,
+		BarionRequestIndex:     s.barionRequestIndex,
+		Registrations:          s.registrations,
+		Configuration:          s.configuration,
+		GeneratedCardSequences: s.generatedCardSequences,
 	}
 	if err := gob.NewEncoder(&payload).Encode(state); err != nil {
 		return err

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MyScoutee payment simulator</title>
+  <link rel="stylesheet" href="/simulator-ui/config.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <span class="eyebrow">MYSCOUTEE DEVELOPMENT</span>
+        <h1>Payment simulator</h1>
+        <p>Choose the external provider surface and whether the next payments require bank confirmation.</p>
+      </div>
+      <div class="header-side">
+        <img class="provider-logo" id="active-provider-logo" alt="" hidden>
+        <span class="provider-wordmark cash-only-wordmark" id="active-cash-only-wordmark">Cash Only</span>
+      </div>
+    </header>
+
+    <form id="configuration-form" class="settings-card">
+      <fieldset>
+        <legend>Provider</legend>
+        <div class="choice">
+          <label class="choice-select">
+            <input type="radio" name="provider" value="none" aria-label="Cash Only">
+            <span class="choice-wordmark cash-only-wordmark">Cash Only</span>
+          </label>
+        </div>
+        <div class="choice">
+          <label class="choice-select">
+            <input type="radio" name="provider" value="stripe" aria-label="Stripe">
+            <img class="choice-logo" src="/simulator-ui/stripe.svg" alt="Stripe">
+          </label>
+        </div>
+        <div class="choice">
+          <label class="choice-select">
+            <input type="radio" name="provider" value="barion" aria-label="Barion">
+            <img class="choice-logo" src="/simulator-ui/barion.svg" alt="Barion">
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Bank confirmation</legend>
+        <label class="switch-row">
+          <span><strong>Require 3DS</strong><small>Require confirmation from the separate 3DS simulator screen.</small></span>
+          <input id="requires-3ds" type="checkbox" role="switch">
+        </label>
+      </fieldset>
+
+      <p id="message" class="message" role="status"></p>
+      <button id="save-button" type="submit">Save test configuration</button>
+    </form>
+
+    <p class="boundary">This screen only selects QA branches. Card data still belongs on the provider registration screen, and no real payment data is accepted or stored.</p>
+  </main>
+  <script src="/simulator-ui/config.js" defer></script>
+</body>
+</html>

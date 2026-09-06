@@ -25,7 +25,11 @@ func authorizeBarionPayment(payment *BarionPayment, now time.Time) {
 
 func (s *Server) authorizeBarion(bodyKey string, headerKey string) bool {
 	key := firstNonBlank(headerKey, bodyKey)
-	return constantTimeEqual(key, s.config.BarionPOSKey)
+	s.mu.RLock()
+	credential := s.configuration.BarionCredential
+	s.mu.RUnlock()
+	return constantTimeEqual(key, s.config.BarionPOSKey) ||
+		(strings.TrimSpace(credential) != "" && constantTimeEqual(key, credential))
 }
 
 func (s *Server) authorizedBarionBrowserPayment(r *http.Request, requiredStatus string) *BarionPayment {

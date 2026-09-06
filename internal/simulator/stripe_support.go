@@ -43,23 +43,23 @@ func parseLineItems(form url.Values) (int64, string, []CheckoutLineItem, error) 
 			item = &parsedLineItem{quantity: 1}
 			items[index] = item
 		}
-			switch matches[2] {
-			case "unit_amount":
-				amount, err := strconv.ParseInt(values[0], 10, 64)
-				if err != nil || amount < 0 {
-					return 0, "", nil, errors.New("line item unit_amount must be a non-negative integer")
-				}
-				item.amount = amount
-			case "currency":
-				item.currency = strings.ToLower(strings.TrimSpace(values[0]))
-			case "product_data":
-				switch matches[3] {
-				case "name":
-					item.name = strings.TrimSpace(values[0])
-				case "description":
-					item.description = strings.TrimSpace(values[0])
-				}
+		switch matches[2] {
+		case "unit_amount":
+			amount, err := strconv.ParseInt(values[0], 10, 64)
+			if err != nil || amount < 0 {
+				return 0, "", nil, errors.New("line item unit_amount must be a non-negative integer")
 			}
+			item.amount = amount
+		case "currency":
+			item.currency = strings.ToLower(strings.TrimSpace(values[0]))
+		case "product_data":
+			switch matches[3] {
+			case "name":
+				item.name = strings.TrimSpace(values[0])
+			case "description":
+				item.description = strings.TrimSpace(values[0])
+			}
+		}
 	}
 	for key, values := range form {
 		if !strings.HasPrefix(key, "line_items[") || !strings.HasSuffix(key, "][quantity]") || len(values) == 0 {
@@ -215,6 +215,15 @@ func (s *Server) authorizeAPI(r *http.Request) bool {
 	return constantTimeEqual(
 		strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "),
 		s.config.APIKey)
+}
+
+func (s *Server) authorizeStripeProvider(r *http.Request) bool {
+	supplied := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	s.mu.RLock()
+	credential := s.configuration.StripeCredential
+	s.mu.RUnlock()
+	return constantTimeEqual(supplied, s.config.APIKey) ||
+		(strings.TrimSpace(credential) != "" && constantTimeEqual(supplied, credential))
 }
 
 func cloneMap(values map[string]string) map[string]string {

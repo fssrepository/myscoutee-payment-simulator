@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -151,17 +152,22 @@ func New(config Config) (*Server, error) {
 		return nil, fmt.Errorf("initialize simulator database: %w", err)
 	}
 	server := &Server{
-		config:             config,
-		now:                now,
-		client:             client,
-		db:                 db,
-		mux:                http.NewServeMux(),
-		sessions:           make(map[string]*CheckoutSession),
-		intents:            make(map[string]*PaymentIntent),
-		idempotency:        make(map[string]idempotencyRecord),
-		events:             make(map[string]*WebhookEvent),
-		barionPayments:     make(map[string]*BarionPayment),
-		barionRequestIndex: make(map[string]barionRequestRecord),
+		config:                     config,
+		now:                        now,
+		client:                     client,
+		db:                         db,
+		mux:                        http.NewServeMux(),
+		sessions:                   make(map[string]*CheckoutSession),
+		intents:                    make(map[string]*PaymentIntent),
+		idempotency:                make(map[string]idempotencyRecord),
+		events:                     make(map[string]*WebhookEvent),
+		barionPayments:             make(map[string]*BarionPayment),
+		barionRequestIndex:         make(map[string]barionRequestRecord),
+		registrations:              make(map[string]*PaymentMethodRegistration),
+		configuration:              SimulatorConfiguration{Provider: "none", Requires3DS: false},
+		generatedCardSequences:     make(map[string]int),
+		configurationAccessTickets: make(map[string]time.Time),
+		configurationSessions:      make(map[string]time.Time),
 	}
 	if err := server.loadState(); err != nil {
 		_ = db.Close()
@@ -181,24 +187,40 @@ func (s *Server) Close() error {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if strings.HasPrefix(r.URL.Path, "/register/") ||
+		strings.HasPrefix(r.URL.Path, "/configuration-access/") ||
+		strings.HasPrefix(r.URL.Path, "/authorization-access/") ||
+		strings.HasPrefix(r.URL.Path, "/payment-method-registration-auth/") ||
+		strings.HasPrefix(r.URL.Path, "/payment-wait/") ||
+		strings.HasPrefix(r.URL.Path, "/simulator-ui/") {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:*")
+	} else {
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /", s.configurationPage)
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("POST /v1/checkout/sessions", s.createSession)
+	s.mux.HandleFunc("POST /v1/payment_intents", s.createPaymentIntent)
 	s.mux.HandleFunc("GET /v1/checkout/sessions/{sessionID}", s.retrieveSession)
 	s.mux.HandleFunc("GET /v1/payment_intents/{intentID}", s.retrievePaymentIntent)
 	s.mux.HandleFunc("POST /v1/payment_intents/{intentID}/capture", s.capturePaymentIntent)
 	s.mux.HandleFunc("POST /v1/payment_intents/{intentID}/cancel", s.cancelPaymentIntent)
 	s.mux.HandleFunc("GET /checkout/{sessionID}", s.checkoutPage)
 	s.mux.HandleFunc("GET /bank-auth/{sessionID}", s.bankAuthPage)
+	s.mux.HandleFunc("GET /payment-wait/stripe/{sessionID}", s.stripePaymentWaitPage)
 	s.mux.HandleFunc("POST /test/sessions/{sessionID}/{outcome}", s.applyOutcome)
 	s.mux.HandleFunc("POST /test/bank-auth/{sessionID}/{outcome}", s.applyBankOutcome)
 	s.mux.HandleFunc("POST /test/events/{eventID}/replay", s.replayEvent)
 	s.mux.HandleFunc("GET /test/audit", s.audit)
+	s.configurationRoutes()
+	s.authorizationRoutes()
+	s.paymentMethodRegistrationRoutes()
 	s.barionRoutes()
 }
 
@@ -207,7 +229,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
-	if !constantTimeEqual(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), s.config.APIKey) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -335,8 +357,129 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, session)
 }
 
+func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeStripeProvider(r) || strings.HasPrefix(r.Header.Get("Authorization"), "Bearer sk_live_") {
+		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "Invalid form body.")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if s.config.RequireIdempotency && idempotencyKey == "" {
+		writeStripeError(w, http.StatusBadRequest, "idempotency_error", "Idempotency-Key is required by the MyScoutee QA contract.")
+		return
+	}
+	requestHash := sha256Hex([]byte(r.Form.Encode()))
+	if idempotencyKey != "" {
+		s.mu.RLock()
+		existing, found := s.idempotency[idempotencyKey]
+		var intent *PaymentIntent
+		if found {
+			if session := s.sessions[existing.SessionID]; session != nil {
+				intent = clonePaymentIntent(s.intents[session.PaymentIntent])
+			}
+		}
+		s.mu.RUnlock()
+		if found {
+			if existing.RequestHash != requestHash {
+				writeStripeError(w, http.StatusConflict, "idempotency_error", "The same idempotency key was used with different parameters.")
+				return
+			}
+			writeJSON(w, http.StatusOK, intent)
+			return
+		}
+	}
+	amount, err := strconv.ParseInt(strings.TrimSpace(r.Form.Get("amount")), 10, 64)
+	currency := strings.ToLower(strings.TrimSpace(r.Form.Get("currency")))
+	paymentMethod := strings.TrimSpace(r.Form.Get("payment_method"))
+	returnURL := strings.TrimSpace(r.Form.Get("return_url"))
+	if err != nil || amount <= 0 || currency == "" || paymentMethod == "" ||
+		strings.TrimSpace(r.Form.Get("capture_method")) != "manual" ||
+		strings.TrimSpace(r.Form.Get("confirm")) != "true" || !validAbsoluteHTTPURL(returnURL) {
+		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "A positive amount, currency, saved payment_method, manual capture, confirm=true and return_url are required.")
+		return
+	}
+
+	s.mu.RLock()
+	requires3DS := s.configuration.Requires3DS
+	registration := s.reusablePaymentMethodLocked("stripe", paymentMethod)
+	s.mu.RUnlock()
+	if registration == nil {
+		writeStripeError(w, http.StatusBadRequest, "card_error", "The saved simulator payment method is unknown.")
+		return
+	}
+
+	now := s.now().UTC()
+	intentID := "pi_test_" + randomHex(12)
+	sessionID := "cs_test_" + randomHex(12)
+	controlToken := randomHex(24)
+	metadata := parseBracketMap(r.Form, "metadata")
+	status := "requires_capture"
+	sessionStatus := "complete"
+	var nextAction *PaymentIntentNextAction
+	if requires3DS {
+		status = "requires_action"
+		sessionStatus = "open"
+		waitingURL := strings.TrimRight(s.config.PublicBaseURL, "/") + "/payment-wait/stripe/" +
+			url.PathEscape(sessionID) + "?token=" + url.QueryEscape(controlToken)
+		nextAction = &PaymentIntentNextAction{
+			Type:          "redirect_to_url",
+			RedirectToURL: PaymentIntentRedirectToURL{URL: waitingURL, ReturnURL: returnURL},
+		}
+	}
+	intent := &PaymentIntent{
+		ID: intentID, Object: "payment_intent", Amount: amount, Currency: currency,
+		Status: status, CaptureMethod: "manual", PaymentMethod: paymentMethod,
+		ClientReferenceID: metadata["checkout_session_id"], Metadata: metadata,
+		Created: now.Unix(), Livemode: false, IdempotencyKey: idempotencyKey,
+		NextAction: nextAction,
+	}
+	if status == "requires_capture" {
+		intent.AmountCapturable = amount
+		intent.CaptureBefore = now.Add(7 * 24 * time.Hour).Unix()
+	}
+	session := &CheckoutSession{
+		ID: sessionID, Object: "checkout.session", Status: sessionStatus,
+		PaymentStatus: "unpaid", Mode: "payment", AmountTotal: amount, Currency: currency,
+		SuccessURL: returnURL, CancelURL: returnURL, ClientReferenceID: metadata["checkout_session_id"],
+		Metadata: cloneMap(metadata), Created: now.Unix(), PaymentIntent: intentID,
+		ControlToken: controlToken, IdempotencyKey: idempotencyKey,
+	}
+
+	s.mu.Lock()
+	s.sessions[sessionID] = session
+	s.intents[intentID] = intent
+	if idempotencyKey != "" {
+		s.idempotency[idempotencyKey] = idempotencyRecord{RequestHash: requestHash, SessionID: sessionID}
+	}
+	var event *WebhookEvent
+	if status == "requires_capture" {
+		event = s.newEventLocked("payment_intent.amount_capturable_updated", intent, idempotencyKey)
+	}
+	if err := s.persistLocked(); err != nil {
+		delete(s.sessions, sessionID)
+		delete(s.intents, intentID)
+		delete(s.idempotency, idempotencyKey)
+		if event != nil {
+			delete(s.events, event.ID)
+			s.eventOrder = s.eventOrder[:len(s.eventOrder)-1]
+		}
+		s.mu.Unlock()
+		writeStripeError(w, http.StatusInternalServerError, "api_error", "Could not persist payment intent.")
+		return
+	}
+	result := clonePaymentIntent(intent)
+	s.mu.Unlock()
+	if event != nil {
+		s.deliver(event)
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) retrieveSession(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAPI(r) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -351,7 +494,7 @@ func (s *Server) retrieveSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) retrievePaymentIntent(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeAPI(r) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -374,7 +517,7 @@ func (s *Server) cancelPaymentIntent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) mutatePaymentIntent(w http.ResponseWriter, r *http.Request, operation string) {
-	if !s.authorizeAPI(r) {
+	if !s.authorizeStripeProvider(r) {
 		writeStripeError(w, http.StatusUnauthorized, "authentication_error", "Invalid test API key.")
 		return
 	}
@@ -645,6 +788,27 @@ func (s *Server) applyBankOutcome(w http.ResponseWriter, r *http.Request) {
 	}
 	previousSession := *cloneSession(session)
 	previousIntent := *clonePaymentIntent(intent)
+	if stripeAuthorizationTimedOut(intent, s.now().UTC()) {
+		session.Status = "expired"
+		session.PaymentStatus = "unpaid"
+		intent.Status = "canceled"
+		intent.CancellationReason = "abandoned"
+		intent.NextAction = nil
+		event := s.newEventLocked("payment_intent.canceled", intent, session.IdempotencyKey)
+		if err := s.persistLocked(); err != nil {
+			*session = previousSession
+			*intent = previousIntent
+			delete(s.events, event.ID)
+			s.eventOrder = s.eventOrder[:len(s.eventOrder)-1]
+			s.mu.Unlock()
+			http.Error(w, "Could not persist bank authentication timeout.", http.StatusInternalServerError)
+			return
+		}
+		s.mu.Unlock()
+		s.deliver(event)
+		http.Error(w, "The three-minute bank authentication window has expired.", http.StatusGone)
+		return
+	}
 	var events []*WebhookEvent
 	var redirectURL string
 	switch outcome {
@@ -846,6 +1010,7 @@ func (s *Server) deliver(event *WebhookEvent) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Stripe-Signature", fmt.Sprintf("t=%d,v1=%s", timestamp, signature))
+	req.Header.Set("X-App-Session-Kind", "demo")
 	response, err := s.client.Do(req)
 	if err != nil {
 		s.recordDelivery(event.ID, 0, err)
