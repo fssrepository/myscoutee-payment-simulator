@@ -134,15 +134,15 @@ type idempotencyRecord struct {
 }
 
 type persistedState struct {
-	Sessions           map[string]*CheckoutSession
-	Intents            map[string]*PaymentIntent
-	Idempotency        map[string]idempotencyRecord
-	Events             map[string]*WebhookEvent
-	EventOrder         []string
-	BarionPayments     map[string]*BarionPayment
-	BarionRequestIndex map[string]barionRequestRecord
-	Registrations      map[string]*PaymentMethodRegistration
-	Configuration      SimulatorConfiguration
+	Sessions               map[string]*CheckoutSession
+	Intents                map[string]*PaymentIntent
+	Idempotency            map[string]idempotencyRecord
+	Events                 map[string]*WebhookEvent
+	EventOrder             []string
+	BarionPayments         map[string]*BarionPayment
+	BarionRequestIndex     map[string]barionRequestRecord
+	Registrations          map[string]*PaymentMethodRegistration
+	Configuration          SimulatorConfiguration
 	GeneratedCardSequences map[string]int
 }
 

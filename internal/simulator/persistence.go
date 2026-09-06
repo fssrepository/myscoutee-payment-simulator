@@ -64,15 +64,15 @@ func (s *Server) loadState() error {
 func (s *Server) persistLocked() error {
 	var payload strings.Builder
 	state := persistedState{
-		Sessions:           s.sessions,
-		Intents:            s.intents,
-		Idempotency:        s.idempotency,
-		Events:             s.events,
-		EventOrder:         s.eventOrder,
-		BarionPayments:     s.barionPayments,
-		BarionRequestIndex: s.barionRequestIndex,
-		Registrations:      s.registrations,
-		Configuration:      s.configuration,
+		Sessions:               s.sessions,
+		Intents:                s.intents,
+		Idempotency:            s.idempotency,
+		Events:                 s.events,
+		EventOrder:             s.eventOrder,
+		BarionPayments:         s.barionPayments,
+		BarionRequestIndex:     s.barionRequestIndex,
+		Registrations:          s.registrations,
+		Configuration:          s.configuration,
 		GeneratedCardSequences: s.generatedCardSequences,
 	}
 	if err := gob.NewEncoder(&payload).Encode(state); err != nil {

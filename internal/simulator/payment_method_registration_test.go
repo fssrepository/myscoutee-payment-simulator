@@ -187,6 +187,67 @@ func TestPaymentMethodRegistration3DSTimesOutAfterThreeMinutes(t *testing.T) {
 	}
 }
 
+func TestGeneratedTestCardsIncrementPerProviderAcrossRegistrationsAndRestart(t *testing.T) {
+	now := time.Date(2026, time.September, 6, 1, 0, 0, 0, time.UTC)
+	databasePath := filepath.Join(t.TempDir(), "simulator.db")
+	config := testConfig(databasePath)
+	config.Now = func() time.Time { return now }
+	server, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server.mu.Lock()
+	for _, registration := range []*PaymentMethodRegistration{
+		{ID: "stripe-first", Provider: "stripe", Status: "pending", ControlToken: "stripe-first-token", ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339Nano)},
+		{ID: "stripe-second", Provider: "stripe", Status: "pending", ControlToken: "stripe-second-token", ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339Nano)},
+		{ID: "barion-first", Provider: "barion", Status: "pending", ControlToken: "barion-first-token", ExpiresAt: now.Add(10 * time.Minute).Format(time.RFC3339Nano)},
+	} {
+		server.registrations[registration.ID] = registration
+	}
+	if err := server.persistLocked(); err != nil {
+		server.mu.Unlock()
+		t.Fatal(err)
+	}
+	server.mu.Unlock()
+
+	generate := func(current *Server, registrationID, token string) generatedPaymentMethodTestCard {
+		request := httptest.NewRequest(http.MethodPost,
+			"/public/payment-method-registrations/"+registrationID+"/generate-test-card?token="+url.QueryEscape(token),
+			strings.NewReader(`{}`))
+		response := httptest.NewRecorder()
+		current.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("generate test card returned %d: %s", response.Code, response.Body.String())
+		}
+		var card generatedPaymentMethodTestCard
+		decodeJSON(t, response.Body.Bytes(), &card)
+		return card
+	}
+
+	firstStripe := generate(server, "stripe-first", "stripe-first-token")
+	if firstStripe.CardholderName != "Stripe Test User 001" || firstStripe.SecurityCode != "237" {
+		t.Fatalf("first generated Stripe card = %+v", firstStripe)
+	}
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	server, err = New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	secondStripe := generate(server, "stripe-second", "stripe-second-token")
+	firstBarion := generate(server, "barion-first", "barion-first-token")
+	if secondStripe.CardholderName != "Stripe Test User 002" || secondStripe.SecurityCode != "374" {
+		t.Fatalf("second generated Stripe card after restart = %+v", secondStripe)
+	}
+	if firstBarion.CardholderName != "Barion Test User 001" || firstBarion.SecurityCode != "237" {
+		t.Fatalf("first generated Barion card = %+v", firstBarion)
+	}
+}
+
 func TestPaymentMethodFixturesReplaceEverySeededCardAndRestoreRevokedCards(t *testing.T) {
 	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
 	if err != nil {
@@ -212,7 +273,20 @@ func TestPaymentMethodFixturesReplaceEverySeededCardAndRestoreRevokedCards(t *te
 		}
 	}
 
+	server.mu.Lock()
+	server.generatedCardSequences["stripe"] = 7
+	if err := server.persistLocked(); err != nil {
+		server.mu.Unlock()
+		t.Fatal(err)
+	}
+	server.mu.Unlock()
 	replaceFixtures()
+	server.mu.RLock()
+	remainingGeneratedSequences := len(server.generatedCardSequences)
+	server.mu.RUnlock()
+	if remainingGeneratedSequences != 0 {
+		t.Fatalf("fixture replacement retained %d generated-card sequences", remainingGeneratedSequences)
+	}
 	for _, token := range []string{
 		"pm_sim_seed_alex_4242",
 		"pm_sim_seed_alex_1881",

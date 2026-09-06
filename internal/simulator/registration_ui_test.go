@@ -26,10 +26,9 @@ func TestRegistrationGeneratorFillsEveryCardField(t *testing.T) {
 			t.Fatalf("test-card generator does not populate %q", assignment)
 		}
 	}
-	for _, providerCard := range []string{"4242424242424242", "5555555555554444"} {
-		if !strings.Contains(script, providerCard) {
-			t.Fatalf("test-card generator is missing provider card %s", providerCard)
-		}
+	if !strings.Contains(script, "/generate-test-card") ||
+		strings.Contains(script, "generatedCardSequence") {
+		t.Fatal("registration UI does not use the simulator-owned generated-card sequence")
 	}
 	for _, marker := range []string{"awaiting3ds", "Waiting for 3DS approval", "threeDsExpiresAt"} {
 		if !strings.Contains(script, marker) {
