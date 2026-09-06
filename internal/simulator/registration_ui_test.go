@@ -64,6 +64,21 @@ func TestProviderBrandingAcrossSimulatorSurfaces(t *testing.T) {
 	if strings.Contains(authorizationsDocument, "TEST ONLY") || strings.Contains(authorizationsDocument, "test-badge") {
 		t.Fatal("3DS confirmations page still renders the obsolete TEST ONLY badge")
 	}
+	authorizationsScript := embeddedText(t, "web/authorizations.js")
+	for _, popupFeature := range []string{
+		"popup=yes",
+		"width=${width}",
+		"height=${height}",
+	} {
+		if !strings.Contains(authorizationsScript, popupFeature) {
+			t.Fatalf("3DS confirmation action is missing popup feature %q", popupFeature)
+		}
+	}
+	confirmationScript := embeddedText(t, "web/confirmation.js")
+	if !strings.Contains(confirmationScript, "window.close()") ||
+		!strings.Contains(paymentMethodRegistrationAuthorizationTemplate.Tree.Root.String(), `id=\"close-confirmation\"`) {
+		t.Fatal("card registration confirmation has no working Close action")
+	}
 
 	for _, surface := range []string{
 		embeddedText(t, "web/register.html"),

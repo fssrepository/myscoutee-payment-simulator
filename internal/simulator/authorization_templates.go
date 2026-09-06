@@ -11,7 +11,7 @@ var paymentWaitTemplate = template.Must(template.New("payment-wait").Parse(`<!do
 var paymentMethodRegistrationAuthorizationTemplate = template.Must(template.New("payment-method-registration-auth").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Card registration confirmation</title>
-<style>:root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172640;background:#eef3f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:1.25rem;background:radial-gradient(circle at top right,#dce9ff,transparent 46%),#eef3f9}main{width:min(100%,36rem);border:2px solid #526987;border-radius:1rem;padding:1.5rem;background:#fff;box-shadow:0 1rem 2.4rem rgba(39,61,92,.12)}.provider-logo{display:block;width:auto;height:2rem;max-width:8rem;margin:0 0 1rem auto;object-fit:contain}.warning{color:#8a3d00}.details{line-height:1.7;color:#53657e}.actions{display:grid;gap:.7rem;margin-top:1.4rem}button{width:100%;padding:.8rem;border:0;border-radius:.6rem;background:#236b47;color:white;font-weight:700}.danger{background:#a63333}.status{font-weight:800;text-transform:capitalize}</style></head>
+<style>:root{color-scheme:light;font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172640;background:#eef3f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:1.25rem;background:radial-gradient(circle at top right,#dce9ff,transparent 46%),#eef3f9}main{width:min(100%,36rem);border:2px solid #526987;border-radius:1rem;padding:1.5rem;background:#fff;box-shadow:0 1rem 2.4rem rgba(39,61,92,.12)}.provider-logo{display:block;width:auto;height:2rem;max-width:8rem;margin:0 0 1rem auto;object-fit:contain}.warning{color:#8a3d00}.details{line-height:1.7;color:#53657e}.actions{display:grid;gap:.7rem;margin-top:1.4rem}button{width:100%;padding:.8rem;border:0;border-radius:.6rem;background:#236b47;color:white;font-weight:700}.danger{background:#a63333}.secondary{margin-top:.7rem;background:#596579}.status{font-weight:800;text-transform:capitalize}</style></head>
 <body><main><img class="provider-logo" src="/simulator-ui/{{.ProviderSlug}}.svg" alt="{{.Provider}}">
 {{if .Pending}}
 <h1>Confirm card registration</h1><p class="warning">Simulated 3DS confirmation for saving this card. No payment is created.</p>
@@ -23,4 +23,5 @@ var paymentMethodRegistrationAuthorizationTemplate = template.Must(template.New(
 {{else}}
 <h1>Card registration result</h1><p>Status: <span class="status">{{.Status}}</span></p>
 {{end}}
-</main></body></html>`))
+<button type="button" class="secondary" id="close-confirmation">Close</button>
+</main><script src="/simulator-ui/confirmation.js" defer></script></body></html>`))

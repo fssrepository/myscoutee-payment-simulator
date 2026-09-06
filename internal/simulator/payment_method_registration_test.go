@@ -106,6 +106,9 @@ func TestPaymentMethodRegistration3DSWaitsForAdminApproval(t *testing.T) {
 	if reviewResponse.Code != http.StatusOK || !strings.Contains(reviewResponse.Body.String(), "Approve card registration") {
 		t.Fatalf("card registration confirmation returned %d: %s", reviewResponse.Code, reviewResponse.Body.String())
 	}
+	if csp := reviewResponse.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "img-src 'self'") {
+		t.Fatalf("card registration confirmation CSP blocks the provider logo: %q", csp)
+	}
 
 	approvePath := "/test/payment-method-registrations/pmreg-3ds/approve?token=" + url.QueryEscape(token)
 	approveResponse := httptest.NewRecorder()

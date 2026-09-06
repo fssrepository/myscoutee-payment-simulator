@@ -121,7 +121,7 @@ func (s *Server) revokePaymentMethod(w http.ResponseWriter, r *http.Request) {
 func (s *Server) paymentMethodUIAsset(w http.ResponseWriter, r *http.Request) {
 	asset := strings.TrimSpace(r.PathValue("asset"))
 	switch asset {
-	case "config.css", "config.js", "register.css", "register.js", "authorizations.css", "authorizations.js", "payment-wait.js", "stripe.svg", "barion.svg":
+	case "config.css", "config.js", "register.css", "register.js", "authorizations.css", "authorizations.js", "confirmation.js", "payment-wait.js", "stripe.svg", "barion.svg":
 		http.ServeFileFS(w, r, paymentMethodUI, "web/"+asset)
 	default:
 		http.NotFound(w, r)

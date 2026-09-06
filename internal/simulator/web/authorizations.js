@@ -57,7 +57,15 @@
     const open = text('button', 'Open confirmation');
     open.addEventListener('click', () => {
       if (!item.reviewUrl) return;
-      window.open(item.reviewUrl, '_blank', 'noopener,noreferrer');
+      const width = Math.min(720, Math.round(window.screen.availWidth * 0.8));
+      const height = Math.min(560, Math.round(window.screen.availHeight * 0.8));
+      const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
+      const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
+      window.open(
+        item.reviewUrl,
+        'myscoutee-payment-confirmation',
+        `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,noopener,noreferrer`
+      );
     });
     actions.append(open);
     article.append(details, actions);
