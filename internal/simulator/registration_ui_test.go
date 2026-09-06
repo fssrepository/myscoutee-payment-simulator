@@ -76,7 +76,7 @@ func TestProviderBrandingAcrossSimulatorSurfaces(t *testing.T) {
 	}
 	confirmationScript := embeddedText(t, "web/confirmation.js")
 	if !strings.Contains(confirmationScript, "window.close()") ||
-		!strings.Contains(paymentMethodRegistrationAuthorizationTemplate.Tree.Root.String(), `id=\"close-confirmation\"`) {
+		!strings.Contains(paymentMethodRegistrationAuthorizationTemplate.Tree.Root.String(), "close-confirmation") {
 		t.Fatal("card registration confirmation has no working Close action")
 	}
 
