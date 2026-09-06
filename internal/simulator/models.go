@@ -24,6 +24,7 @@ type Server struct {
 	barionRequestIndex         map[string]barionRequestRecord
 	registrations              map[string]*PaymentMethodRegistration
 	configuration              SimulatorConfiguration
+	generatedCardSequences     map[string]int
 	configurationAccessTickets map[string]time.Time
 	configurationSessions      map[string]time.Time
 }
@@ -142,6 +143,7 @@ type persistedState struct {
 	BarionRequestIndex map[string]barionRequestRecord
 	Registrations      map[string]*PaymentMethodRegistration
 	Configuration      SimulatorConfiguration
+	GeneratedCardSequences map[string]int
 }
 
 // SimulatorConfiguration selects the two externally visible QA branches. It

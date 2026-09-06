@@ -18,12 +18,7 @@
   const yearSelect = document.querySelector('#expiry-year');
   const securityCodeInput = document.querySelector('#security-code');
 
-  const cards = {
-    stripe: { number: '4242424242424242', cardholderPrefix: 'Stripe Test User' },
-    barion: { number: '5555555555554444', cardholderPrefix: 'Barion Test User' }
-  };
   let activeProvider = 'stripe';
-  let generatedCardSequence = 0;
   let registrationPoll = null;
   let resultNotification = null;
 
@@ -113,22 +108,25 @@
     providerLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
   }
 
-  function generatedSecurityCode(sequence) {
-    return String(100 + (sequence * 137) % 900);
-  }
-
-  function generateTestCard() {
-    generatedCardSequence += 1;
-    const card = cards[activeProvider];
-    const sequenceLabel = String(generatedCardSequence).padStart(3, '0');
-    const now = new Date();
-    cardholderInput.value = `${card.cardholderPrefix} ${sequenceLabel}`;
-    numberInput.value = formatNumber(card.number);
-    monthSelect.value = String(now.getMonth() + 1);
-    yearSelect.value = String(now.getFullYear() + 3);
-    securityCodeInput.value = generatedSecurityCode(generatedCardSequence);
+  async function generateTestCard() {
+    generateButton.disabled = true;
     errorBox.classList.add('hidden');
-    cardholderInput.focus();
+    try {
+      const card = await request(endpoint + '/generate-test-card' + capabilityQuery, {
+        method: 'POST',
+        body: '{}'
+      });
+      cardholderInput.value = card.cardholderName;
+      numberInput.value = formatNumber(card.cardNumber);
+      monthSelect.value = String(card.expiryMonth);
+      yearSelect.value = String(card.expiryYear);
+      securityCodeInput.value = card.securityCode;
+      cardholderInput.focus();
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      generateButton.disabled = false;
+    }
   }
 
   async function request(path, options = {}) {
@@ -179,7 +177,7 @@
   }
 
   numberInput.addEventListener('input', () => { numberInput.value = formatNumber(numberInput.value); });
-  generateButton.addEventListener('click', generateTestCard);
+  generateButton.addEventListener('click', () => void generateTestCard());
 
   form.addEventListener('submit', async event => {
     event.preventDefault();

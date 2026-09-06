@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -44,6 +45,14 @@ type replacePaymentMethodFixturesRequest struct {
 	PaymentMethods []paymentMethodFixtureRequest `json:"payment_methods"`
 }
 
+type generatedPaymentMethodTestCard struct {
+	CardNumber     string `json:"cardNumber"`
+	ExpiryMonth    int    `json:"expiryMonth"`
+	ExpiryYear     int    `json:"expiryYear"`
+	CardholderName string `json:"cardholderName"`
+	SecurityCode   string `json:"securityCode"`
+}
+
 type simulatorCardProfile struct {
 	Provider string
 	Brand    string
@@ -65,6 +74,7 @@ func (s *Server) paymentMethodRegistrationRoutes() {
 	s.mux.HandleFunc("GET /register/{registrationID}", s.paymentMethodRegistrationPage)
 	s.mux.HandleFunc("GET /payment-method-registration-auth/{registrationID}", s.paymentMethodRegistrationAuthorizationPage)
 	s.mux.HandleFunc("GET /public/payment-method-registrations/{registrationID}", s.publicPaymentMethodRegistration)
+	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/generate-test-card", s.generatePaymentMethodTestCard)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/complete", s.completePaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/cancel", s.cancelPaymentMethodRegistration)
 	s.mux.HandleFunc("POST /test/payment-method-registrations/{registrationID}/{outcome}", s.applyPaymentMethodRegistrationAuthorization)
@@ -112,6 +122,7 @@ func (s *Server) replacePaymentMethodFixtures(w http.ResponseWriter, r *http.Req
 
 	s.mu.Lock()
 	previous := make(map[string]*PaymentMethodRegistration)
+	previousGeneratedCardSequences := s.generatedCardSequences
 	for id, registration := range s.registrations {
 		if strings.HasPrefix(id, "seed_") {
 			previous[id] = registration
@@ -121,6 +132,7 @@ func (s *Server) replacePaymentMethodFixtures(w http.ResponseWriter, r *http.Req
 	for id, registration := range fixtures {
 		s.registrations[id] = registration
 	}
+	s.generatedCardSequences = make(map[string]int)
 	if err := s.persistLocked(); err != nil {
 		for id := range fixtures {
 			delete(s.registrations, id)
@@ -128,6 +140,7 @@ func (s *Server) replacePaymentMethodFixtures(w http.ResponseWriter, r *http.Req
 		for id, registration := range previous {
 			s.registrations[id] = registration
 		}
+		s.generatedCardSequences = previousGeneratedCardSequences
 		s.mu.Unlock()
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not replace payment method fixtures."})
 		return
@@ -331,6 +344,60 @@ func (s *Server) publicPaymentMethodRegistration(w http.ResponseWriter, r *http.
 	if changed {
 		go s.deliverPaymentMethodRegistrationCallback(registration.ID, registration.Status)
 	}
+}
+
+func (s *Server) generatePaymentMethodTestCard(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	s.mu.Lock()
+	registration := s.registrations[r.PathValue("registrationID")]
+	if registration == nil || !constantTimeEqual(token, registration.ControlToken) {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Registration not found."})
+		return
+	}
+	if s.expirePaymentMethodRegistrationLocked(registration) {
+		if err := s.persistLocked(); err != nil {
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not expire card registration."})
+			return
+		}
+		result := clonePaymentMethodRegistration(registration, false)
+		s.mu.Unlock()
+		go s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Registration is no longer editable."})
+		return
+	}
+	if registration.Status != "pending" || registration.Awaiting3DS {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Registration is no longer editable."})
+		return
+	}
+
+	provider := registration.Provider
+	previousSequence := s.generatedCardSequences[provider]
+	sequence := previousSequence + 1
+	s.generatedCardSequences[provider] = sequence
+	if err := s.persistLocked(); err != nil {
+		s.generatedCardSequences[provider] = previousSequence
+		s.mu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not allocate a simulator test card."})
+		return
+	}
+	now := s.now().UTC()
+	card := generatedPaymentMethodTestCard{
+		ExpiryMonth:  int(now.Month()),
+		ExpiryYear:   now.Year() + 3,
+		SecurityCode: strconv.Itoa(100 + (sequence*137)%900),
+	}
+	if provider == "barion" {
+		card.CardNumber = "5555555555554444"
+		card.CardholderName = "Barion Test User " + fmt.Sprintf("%03d", sequence)
+	} else {
+		card.CardNumber = "4242424242424242"
+		card.CardholderName = "Stripe Test User " + fmt.Sprintf("%03d", sequence)
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, card)
 }
 
 func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *http.Request) {

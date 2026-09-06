@@ -42,6 +42,9 @@ func (s *Server) loadState() error {
 	if state.Registrations != nil {
 		s.registrations = state.Registrations
 	}
+	if state.GeneratedCardSequences != nil {
+		s.generatedCardSequences = state.GeneratedCardSequences
+	}
 	configurationMigrated := false
 	if state.Configuration.Provider == "none" || state.Configuration.Provider == "stripe" || state.Configuration.Provider == "barion" {
 		s.configuration = state.Configuration
@@ -70,6 +73,7 @@ func (s *Server) persistLocked() error {
 		BarionRequestIndex: s.barionRequestIndex,
 		Registrations:      s.registrations,
 		Configuration:      s.configuration,
+		GeneratedCardSequences: s.generatedCardSequences,
 	}
 	if err := gob.NewEncoder(&payload).Encode(state); err != nil {
 		return err
