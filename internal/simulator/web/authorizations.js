@@ -5,8 +5,17 @@
   const providerBadge = document.querySelector('#provider-badge');
   const modeBadge = document.querySelector('#mode-badge');
   const activeProviderLogo = document.querySelector('#active-provider-logo');
+  const confirmationDialog = document.querySelector('#confirmation-dialog');
+  const confirmationFrame = document.querySelector('#confirmation-frame');
+  const closeConfirmationDialog = document.querySelector('#close-confirmation-dialog');
   let loading = false;
   let renderedState = '';
+
+  function closeConfirmation() {
+    confirmationDialog.close();
+    confirmationFrame.removeAttribute('src');
+    void refresh();
+  }
 
   function showMessage(text, error = false) {
     message.textContent = text;
@@ -57,15 +66,8 @@
     const open = text('button', 'Open confirmation');
     open.addEventListener('click', () => {
       if (!item.reviewUrl) return;
-      const width = Math.min(720, Math.round(window.screen.availWidth * 0.8));
-      const height = Math.min(560, Math.round(window.screen.availHeight * 0.8));
-      const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - width) / 2));
-      const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - height) / 2));
-      window.open(
-        item.reviewUrl,
-        'myscoutee-payment-confirmation',
-        `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,noopener,noreferrer`
-      );
+      confirmationFrame.src = item.reviewUrl;
+      confirmationDialog.showModal();
     });
     actions.append(open);
     article.append(details, actions);
@@ -119,6 +121,16 @@
       loading = false;
     }
   }
+
+  closeConfirmationDialog.addEventListener('click', closeConfirmation);
+  confirmationDialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    closeConfirmation();
+  });
+  window.addEventListener('message', event => {
+    if (event.origin !== window.location.origin || event.source !== confirmationFrame.contentWindow) return;
+    if (event.data?.type === 'myscoutee:close-payment-confirmation') closeConfirmation();
+  });
 
   void refresh();
   window.setInterval(refresh, 1000);

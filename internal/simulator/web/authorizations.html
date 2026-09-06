@@ -25,6 +25,13 @@
     <p id="message" class="message" role="status"></p>
     <section id="pending" class="pending" aria-live="polite"></section>
   </main>
+  <dialog id="confirmation-dialog" aria-label="3DS confirmation">
+    <div class="confirmation-dialog-head">
+      <strong>3DS confirmation</strong>
+      <button type="button" id="close-confirmation-dialog" aria-label="Close confirmation">×</button>
+    </div>
+    <iframe id="confirmation-frame" title="3DS confirmation"></iframe>
+  </dialog>
   <script src="/simulator-ui/authorizations.js" defer></script>
 </body>
 </html>

@@ -65,17 +65,22 @@ func TestProviderBrandingAcrossSimulatorSurfaces(t *testing.T) {
 		t.Fatal("3DS confirmations page still renders the obsolete TEST ONLY badge")
 	}
 	authorizationsScript := embeddedText(t, "web/authorizations.js")
-	for _, popupFeature := range []string{
-		"popup=yes",
-		"width=${width}",
-		"height=${height}",
+	for _, modalFeature := range []string{
+		"confirmationFrame.src = item.reviewUrl",
+		"confirmationDialog.showModal()",
+		"closeConfirmation()",
 	} {
-		if !strings.Contains(authorizationsScript, popupFeature) {
-			t.Fatalf("3DS confirmation action is missing popup feature %q", popupFeature)
+		if !strings.Contains(authorizationsScript, modalFeature) {
+			t.Fatalf("3DS confirmation action is missing iframe-modal feature %q", modalFeature)
 		}
 	}
+	if strings.Contains(authorizationsScript, "window.open(") ||
+		!strings.Contains(authorizationsDocument, `id="confirmation-dialog"`) ||
+		!strings.Contains(authorizationsDocument, `id="confirmation-frame"`) {
+		t.Fatal("3DS confirmation must open inside the existing simulator iframe")
+	}
 	confirmationScript := embeddedText(t, "web/confirmation.js")
-	if !strings.Contains(confirmationScript, "window.close()") ||
+	if !strings.Contains(confirmationScript, "myscoutee:close-payment-confirmation") ||
 		!strings.Contains(paymentMethodRegistrationAuthorizationTemplate.Tree.Root.String(), "close-confirmation") {
 		t.Fatal("card registration confirmation has no working Close action")
 	}
