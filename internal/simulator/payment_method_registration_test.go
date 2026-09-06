@@ -132,6 +132,42 @@ func TestPaymentMethodRegistration3DSWaitsForAdminApproval(t *testing.T) {
 	}
 }
 
+func TestPaymentMethodRegistration3DSDeclineIsCancelled(t *testing.T) {
+	now := time.Date(2026, time.September, 6, 1, 0, 0, 0, time.UTC)
+	config := testConfig(filepath.Join(t.TempDir(), "simulator.db"))
+	config.Now = func() time.Time { return now }
+	server, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	server.mu.Lock()
+	server.registrations["decline-registration"] = &PaymentMethodRegistration{
+		ID:             "decline-registration",
+		Provider:       "stripe",
+		Status:         "pending",
+		Awaiting3DS:    true,
+		ThreeDSExpires: now.Add(3 * time.Minute).Unix(),
+		ControlToken:   "decline-token",
+		ExpiresAt:      now.Add(10 * time.Minute).Format(time.RFC3339Nano),
+	}
+	server.mu.Unlock()
+
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, httptest.NewRequest(http.MethodPost,
+		"/test/payment-method-registrations/decline-registration/decline?token=decline-token", nil))
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("decline registration returned %d: %s", response.Code, response.Body.String())
+	}
+	server.mu.RLock()
+	status := server.registrations["decline-registration"].Status
+	server.mu.RUnlock()
+	if status != "cancelled" {
+		t.Fatalf("declined registration status = %q, want cancelled", status)
+	}
+}
+
 func TestPaymentMethodRegistration3DSTimesOutAfterThreeMinutes(t *testing.T) {
 	callbackStatuses := make(chan string, 1)
 	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

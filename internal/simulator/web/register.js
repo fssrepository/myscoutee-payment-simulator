@@ -51,8 +51,8 @@
     const results = {
       completed: ['✓', 'Card saved', 'The provider token is ready. Returning to MyScoutee…'],
       expired: ['⌛', 'Registration timed out', 'The 3DS confirmation was not completed in time.'],
-      failed: ['×', 'Registration declined', 'The card was not saved.'],
-      cancelled: ['×', 'Registration closed', 'No card details were saved.']
+      failed: ['×', 'Registration failed', 'The provider could not save the card.'],
+      cancelled: ['×', 'Registration cancelled', 'The card was not saved.']
     };
     const result = results[status] || results.failed;
     resultIcon.textContent = result[0];

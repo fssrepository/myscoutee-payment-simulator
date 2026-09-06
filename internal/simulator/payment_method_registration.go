@@ -558,7 +558,7 @@ func (s *Server) applyPaymentMethodRegistrationAuthorization(w http.ResponseWrit
 		if outcome == "approve" {
 			registration.Status = "completed"
 		} else {
-			registration.Status = "failed"
+			registration.Status = "cancelled"
 		}
 		registration.URL = ""
 		registration.Awaiting3DS = false
