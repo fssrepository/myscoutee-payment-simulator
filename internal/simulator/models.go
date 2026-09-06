@@ -24,6 +24,7 @@ type Server struct {
 	barionRequestIndex         map[string]barionRequestRecord
 	registrations              map[string]*PaymentMethodRegistration
 	configuration              SimulatorConfiguration
+	generatedCardSequences     map[string]int
 	configurationAccessTickets map[string]time.Time
 	configurationSessions      map[string]time.Time
 }
@@ -133,15 +134,16 @@ type idempotencyRecord struct {
 }
 
 type persistedState struct {
-	Sessions           map[string]*CheckoutSession
-	Intents            map[string]*PaymentIntent
-	Idempotency        map[string]idempotencyRecord
-	Events             map[string]*WebhookEvent
-	EventOrder         []string
-	BarionPayments     map[string]*BarionPayment
-	BarionRequestIndex map[string]barionRequestRecord
-	Registrations      map[string]*PaymentMethodRegistration
-	Configuration      SimulatorConfiguration
+	Sessions               map[string]*CheckoutSession
+	Intents                map[string]*PaymentIntent
+	Idempotency            map[string]idempotencyRecord
+	Events                 map[string]*WebhookEvent
+	EventOrder             []string
+	BarionPayments         map[string]*BarionPayment
+	BarionRequestIndex     map[string]barionRequestRecord
+	Registrations          map[string]*PaymentMethodRegistration
+	Configuration          SimulatorConfiguration
+	GeneratedCardSequences map[string]int
 }
 
 // SimulatorConfiguration selects the two externally visible QA branches. It
@@ -170,6 +172,8 @@ type PaymentMethodRegistration struct {
 	CardholderName string `json:"cardholderName,omitempty"`
 	ExpiresAt      string `json:"expiresAt"`
 	Requires3DS    bool   `json:"-"`
+	Awaiting3DS    bool   `json:"awaiting3ds,omitempty"`
+	ThreeDSExpires int64  `json:"threeDsExpiresAt,omitempty"`
 	UserReference  string `json:"-"`
 	ControlToken   string `json:"-"`
 	CreatedAt      int64  `json:"-"`

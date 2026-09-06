@@ -5,8 +5,17 @@
   const providerBadge = document.querySelector('#provider-badge');
   const modeBadge = document.querySelector('#mode-badge');
   const activeProviderLogo = document.querySelector('#active-provider-logo');
+  const confirmationDialog = document.querySelector('#confirmation-dialog');
+  const confirmationFrame = document.querySelector('#confirmation-frame');
+  const closeConfirmationDialog = document.querySelector('#close-confirmation-dialog');
   let loading = false;
   let renderedState = '';
+
+  function closeConfirmation() {
+    confirmationDialog.close();
+    confirmationFrame.removeAttribute('src');
+    void refresh();
+  }
 
   function showMessage(text, error = false) {
     message.textContent = text;
@@ -42,7 +51,10 @@
     providerLogo.className = 'authorization-provider-logo';
     providerLogo.src = `/simulator-ui/${provider}.svg`;
     providerLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
-    heading.append(providerLogo, text('span', formatAmount(item)));
+    const headingText = item.kind === 'card-registration'
+      ? `Card registration${item.last4 ? ` •••• ${item.last4}` : ''}`
+      : formatAmount(item);
+    heading.append(providerLogo, text('span', headingText));
     details.append(heading);
     const list = document.createElement('dl');
     if (item.userReference) row('Member', item.userReference, list);
@@ -54,7 +66,8 @@
     const open = text('button', 'Open confirmation');
     open.addEventListener('click', () => {
       if (!item.reviewUrl) return;
-      window.open(item.reviewUrl, '_blank', 'noopener,noreferrer');
+      confirmationFrame.src = item.reviewUrl;
+      confirmationDialog.showModal();
     });
     actions.append(open);
     article.append(details, actions);
@@ -81,7 +94,7 @@
     modeBadge.textContent = data.requires3ds ? '3DS required' : '3DS disabled';
     pending.replaceChildren();
     if (!items.length) {
-      const empty = text('div', 'No payment is waiting for 3DS confirmation.');
+      const empty = text('div', 'No payment or card registration is waiting for 3DS confirmation.');
       empty.className = 'empty';
       pending.append(empty);
       return;
@@ -108,6 +121,16 @@
       loading = false;
     }
   }
+
+  closeConfirmationDialog.addEventListener('click', closeConfirmation);
+  confirmationDialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    closeConfirmation();
+  });
+  window.addEventListener('message', event => {
+    if (event.origin !== window.location.origin || event.source !== confirmationFrame.contentWindow) return;
+    if (event.data?.type === 'myscoutee:close-payment-confirmation') closeConfirmation();
+  });
 
   void refresh();
   window.setInterval(refresh, 1000);

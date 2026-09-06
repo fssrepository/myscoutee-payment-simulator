@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -30,6 +31,28 @@ type completePaymentMethodRegistrationRequest struct {
 	SecurityCode   string `json:"securityCode"`
 }
 
+type paymentMethodFixtureRequest struct {
+	Provider       string `json:"provider"`
+	ProviderToken  string `json:"provider_token"`
+	Brand          string `json:"brand"`
+	Last4          string `json:"last4"`
+	ExpiryMonth    int    `json:"expiry_month"`
+	ExpiryYear     int    `json:"expiry_year"`
+	CardholderName string `json:"cardholder_name"`
+}
+
+type replacePaymentMethodFixturesRequest struct {
+	PaymentMethods []paymentMethodFixtureRequest `json:"payment_methods"`
+}
+
+type generatedPaymentMethodTestCard struct {
+	CardNumber     string `json:"cardNumber"`
+	ExpiryMonth    int    `json:"expiryMonth"`
+	ExpiryYear     int    `json:"expiryYear"`
+	CardholderName string `json:"cardholderName"`
+	SecurityCode   string `json:"securityCode"`
+}
+
 type simulatorCardProfile struct {
 	Provider string
 	Brand    string
@@ -49,9 +72,81 @@ func (s *Server) paymentMethodRegistrationRoutes() {
 	s.mux.HandleFunc("GET /myscoutee/v1/payment-method-registrations/{registrationID}", s.retrievePaymentMethodRegistration)
 	s.mux.HandleFunc("DELETE /myscoutee/v1/payment-methods/{provider}/{providerToken}", s.revokePaymentMethod)
 	s.mux.HandleFunc("GET /register/{registrationID}", s.paymentMethodRegistrationPage)
+	s.mux.HandleFunc("GET /payment-method-registration-auth/{registrationID}", s.paymentMethodRegistrationAuthorizationPage)
 	s.mux.HandleFunc("GET /public/payment-method-registrations/{registrationID}", s.publicPaymentMethodRegistration)
+	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/generate-test-card", s.generatePaymentMethodTestCard)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/complete", s.completePaymentMethodRegistration)
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/cancel", s.cancelPaymentMethodRegistration)
+	s.mux.HandleFunc("POST /test/payment-method-registrations/{registrationID}/{outcome}", s.applyPaymentMethodRegistrationAuthorization)
+	s.mux.HandleFunc("PUT /myscoutee/v1/test-fixtures/payment-methods", s.replacePaymentMethodFixtures)
+}
+
+func (s *Server) replacePaymentMethodFixtures(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeAPI(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid test API key."})
+		return
+	}
+	var request replacePaymentMethodFixturesRequest
+	if err := decodeStrictJSON(r, &request); err != nil || len(request.PaymentMethods) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Payment method fixtures are required."})
+		return
+	}
+
+	fixtures := make(map[string]*PaymentMethodRegistration, len(request.PaymentMethods))
+	for _, value := range request.PaymentMethods {
+		provider := strings.ToLower(strings.TrimSpace(value.Provider))
+		providerToken := strings.TrimSpace(value.ProviderToken)
+		last4 := strings.TrimSpace(value.Last4)
+		if (provider != "stripe" && provider != "barion") || providerToken == "" || len(last4) != 4 ||
+			value.ExpiryMonth < 1 || value.ExpiryMonth > 12 || value.ExpiryYear < 2000 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A payment method fixture is invalid."})
+			return
+		}
+		fixtureID := "seed_" + providerToken
+		if _, duplicate := fixtures[fixtureID]; duplicate {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "Payment method fixture tokens must be unique."})
+			return
+		}
+		fixtures[fixtureID] = &PaymentMethodRegistration{
+			ID:             fixtureID,
+			Provider:       provider,
+			Status:         "completed",
+			ProviderToken:  providerToken,
+			Brand:          strings.TrimSpace(value.Brand),
+			Last4:          last4,
+			ExpiryMonth:    value.ExpiryMonth,
+			ExpiryYear:     value.ExpiryYear,
+			CardholderName: strings.TrimSpace(value.CardholderName),
+		}
+	}
+
+	s.mu.Lock()
+	previous := make(map[string]*PaymentMethodRegistration)
+	previousGeneratedCardSequences := s.generatedCardSequences
+	for id, registration := range s.registrations {
+		if strings.HasPrefix(id, "seed_") {
+			previous[id] = registration
+			delete(s.registrations, id)
+		}
+	}
+	for id, registration := range fixtures {
+		s.registrations[id] = registration
+	}
+	s.generatedCardSequences = make(map[string]int)
+	if err := s.persistLocked(); err != nil {
+		for id := range fixtures {
+			delete(s.registrations, id)
+		}
+		for id, registration := range previous {
+			s.registrations[id] = registration
+		}
+		s.generatedCardSequences = previousGeneratedCardSequences
+		s.mu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not replace payment method fixtures."})
+		return
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]int{"payment_methods": len(fixtures)})
 }
 
 func (s *Server) revokePaymentMethod(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +214,7 @@ func (s *Server) revokePaymentMethod(w http.ResponseWriter, r *http.Request) {
 func (s *Server) paymentMethodUIAsset(w http.ResponseWriter, r *http.Request) {
 	asset := strings.TrimSpace(r.PathValue("asset"))
 	switch asset {
-	case "config.css", "config.js", "register.css", "register.js", "authorizations.css", "authorizations.js", "payment-wait.js", "stripe.svg", "barion.svg":
+	case "config.css", "config.js", "register.css", "register.js", "authorizations.css", "authorizations.js", "confirmation.js", "payment-wait.js", "stripe.svg", "barion.svg":
 		http.ServeFileFS(w, r, paymentMethodUI, "web/"+asset)
 	default:
 		http.NotFound(w, r)
@@ -251,6 +346,60 @@ func (s *Server) publicPaymentMethodRegistration(w http.ResponseWriter, r *http.
 	}
 }
 
+func (s *Server) generatePaymentMethodTestCard(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	s.mu.Lock()
+	registration := s.registrations[r.PathValue("registrationID")]
+	if registration == nil || !constantTimeEqual(token, registration.ControlToken) {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Registration not found."})
+		return
+	}
+	if s.expirePaymentMethodRegistrationLocked(registration) {
+		if err := s.persistLocked(); err != nil {
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not expire card registration."})
+			return
+		}
+		result := clonePaymentMethodRegistration(registration, false)
+		s.mu.Unlock()
+		go s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Registration is no longer editable."})
+		return
+	}
+	if registration.Status != "pending" || registration.Awaiting3DS {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Registration is no longer editable."})
+		return
+	}
+
+	provider := registration.Provider
+	previousSequence := s.generatedCardSequences[provider]
+	sequence := previousSequence + 1
+	s.generatedCardSequences[provider] = sequence
+	if err := s.persistLocked(); err != nil {
+		s.generatedCardSequences[provider] = previousSequence
+		s.mu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not allocate a simulator test card."})
+		return
+	}
+	now := s.now().UTC()
+	card := generatedPaymentMethodTestCard{
+		ExpiryMonth:  int(now.Month()),
+		ExpiryYear:   now.Year() + 3,
+		SecurityCode: strconv.Itoa(100 + (sequence*137)%900),
+	}
+	if provider == "barion" {
+		card.CardNumber = "5555555555554444"
+		card.CardholderName = "Barion Test User " + fmt.Sprintf("%03d", sequence)
+	} else {
+		card.CardNumber = "4242424242424242"
+		card.CardholderName = "Stripe Test User " + fmt.Sprintf("%03d", sequence)
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, card)
+}
+
 func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *http.Request) {
 	var request completePaymentMethodRegistrationRequest
 	if err := decodeStrictJSON(r, &request); err != nil {
@@ -278,6 +427,12 @@ func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *htt
 		writeJSON(w, http.StatusConflict, result)
 		return
 	}
+	if registration.Awaiting3DS {
+		result := clonePaymentMethodRegistration(registration, false)
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, result)
+		return
+	}
 	if !known || profile.Provider != registration.Provider {
 		s.mu.Unlock()
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "Use one of the simulator test cards shown on this screen."})
@@ -289,19 +444,28 @@ func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *htt
 		return
 	}
 	previous := *registration
-	registration.Status = "completed"
+	registration.Requires3DS = s.configuration.Requires3DS
+	registration.Awaiting3DS = registration.Requires3DS
+	if registration.Awaiting3DS {
+		registration.Status = "pending"
+		registration.ThreeDSExpires = s.now().UTC().Add(paymentAuthorizationTTL).Unix()
+	} else {
+		registration.Status = "completed"
+		registration.ThreeDSExpires = 0
+	}
 	registration.Brand = profile.Brand
 	registration.Last4 = profile.Last4
 	registration.ExpiryMonth = request.ExpiryMonth
 	registration.ExpiryYear = request.ExpiryYear
 	registration.CardholderName = cardholder
-	registration.Requires3DS = s.configuration.Requires3DS
 	if registration.Provider == "stripe" {
 		registration.ProviderToken = "pm_sim_" + randomHex(12)
 	} else {
 		registration.ProviderToken = "rec_sim_" + randomHex(12)
 	}
-	registration.URL = ""
+	if !registration.Awaiting3DS {
+		registration.URL = ""
+	}
 	if err := s.persistLocked(); err != nil {
 		*registration = previous
 		s.mu.Unlock()
@@ -310,7 +474,9 @@ func (s *Server) completePaymentMethodRegistration(w http.ResponseWriter, r *htt
 	}
 	result := clonePaymentMethodRegistration(registration, false)
 	s.mu.Unlock()
-	s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	if result.Status != "pending" {
+		s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -325,6 +491,8 @@ func (s *Server) cancelPaymentMethodRegistration(w http.ResponseWriter, r *http.
 	if registration.Status == "pending" {
 		registration.Status = "cancelled"
 		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
 		if err := s.persistLocked(); err != nil {
 			s.mu.Unlock()
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not cancel registration."})
@@ -335,6 +503,90 @@ func (s *Server) cancelPaymentMethodRegistration(w http.ResponseWriter, r *http.
 	s.mu.Unlock()
 	s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) paymentMethodRegistrationAuthorizationPage(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	registration := s.registrations[r.PathValue("registrationID")]
+	valid := registration != nil && constantTimeEqual(r.URL.Query().Get("token"), registration.ControlToken)
+	changed := valid && s.expirePaymentMethodRegistrationLocked(registration)
+	if changed {
+		_ = s.persistLocked()
+	}
+	var view map[string]any
+	if valid {
+		view = map[string]any{
+			"ID": registration.ID, "Provider": registration.Provider,
+			"ProviderSlug": strings.ToLower(registration.Provider), "Status": registration.Status,
+			"Pending": registration.Status == "pending" && registration.Awaiting3DS,
+			"Last4":   registration.Last4, "Cardholder": registration.CardholderName,
+			"Token": r.URL.Query().Get("token"),
+		}
+	}
+	result := clonePaymentMethodRegistration(registration, false)
+	s.mu.Unlock()
+	if !valid {
+		http.Error(w, "Card registration confirmation was not found.", http.StatusNotFound)
+		return
+	}
+	if changed {
+		go s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := paymentMethodRegistrationAuthorizationTemplate.Execute(w, view); err != nil {
+		http.Error(w, "Could not render card registration confirmation.", http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) applyPaymentMethodRegistrationAuthorization(w http.ResponseWriter, r *http.Request) {
+	outcome := strings.ToLower(strings.TrimSpace(r.PathValue("outcome")))
+	if outcome != "approve" && outcome != "decline" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Card registration confirmation must be approved or declined."})
+		return
+	}
+	token := r.URL.Query().Get("token")
+	s.mu.Lock()
+	registration := s.registrations[r.PathValue("registrationID")]
+	if registration == nil || !constantTimeEqual(token, registration.ControlToken) {
+		s.mu.Unlock()
+		http.Error(w, "Card registration confirmation was not found.", http.StatusNotFound)
+		return
+	}
+	changed := s.expirePaymentMethodRegistrationLocked(registration)
+	if !changed && registration.Status == "pending" && registration.Awaiting3DS {
+		previous := *registration
+		if outcome == "approve" {
+			registration.Status = "completed"
+		} else {
+			registration.Status = "cancelled"
+		}
+		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
+		if err := s.persistLocked(); err != nil {
+			*registration = previous
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not save card registration confirmation."})
+			return
+		}
+		changed = true
+	} else if changed {
+		if err := s.persistLocked(); err != nil {
+			s.mu.Unlock()
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not save card registration timeout."})
+			return
+		}
+	} else if registration.Status == "pending" {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "Card details must be submitted before confirmation."})
+		return
+	}
+	result := clonePaymentMethodRegistration(registration, false)
+	s.mu.Unlock()
+	if changed {
+		s.deliverPaymentMethodRegistrationCallback(result.ID, result.Status)
+	}
+	http.Redirect(w, r, "/payment-method-registration-auth/"+url.PathEscape(result.ID)+"?token="+url.QueryEscape(token), http.StatusSeeOther)
 }
 
 func (s *Server) deliverPaymentMethodRegistrationCallback(registrationID string, status string) {
@@ -387,10 +639,20 @@ func (s *Server) expirePaymentMethodRegistrationLocked(registration *PaymentMeth
 	if registration == nil || registration.Status != "pending" {
 		return false
 	}
+	if registration.Awaiting3DS && registration.ThreeDSExpires > 0 &&
+		!time.Unix(registration.ThreeDSExpires, 0).After(s.now().UTC()) {
+		registration.Status = "expired"
+		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
+		return true
+	}
 	expiresAt, err := time.Parse(time.RFC3339Nano, registration.ExpiresAt)
 	if err != nil || !expiresAt.After(s.now().UTC()) {
 		registration.Status = "expired"
 		registration.URL = ""
+		registration.Awaiting3DS = false
+		registration.ThreeDSExpires = 0
 		return true
 	}
 	return false
@@ -420,6 +682,8 @@ func simulatorSeedPaymentMethod(provider string, providerToken string) *PaymentM
 		return &PaymentMethodRegistration{Provider: "stripe", ProviderToken: providerToken, Status: "completed", Brand: "Visa", Last4: "4242"}
 	case "pm_sim_seed_alex_1881":
 		return &PaymentMethodRegistration{Provider: "stripe", ProviderToken: providerToken, Status: "completed", Brand: "Visa", Last4: "1881"}
+	case "pm_sim_seed_alex_expired_0008":
+		return &PaymentMethodRegistration{Provider: "stripe", ProviderToken: providerToken, Status: "completed", Brand: "Visa", Last4: "0008", ExpiryMonth: 8, ExpiryYear: 2026, CardholderName: "ALEX TURNER"}
 	default:
 		return nil
 	}

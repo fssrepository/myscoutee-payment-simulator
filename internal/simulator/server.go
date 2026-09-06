@@ -165,6 +165,7 @@ func New(config Config) (*Server, error) {
 		barionRequestIndex:         make(map[string]barionRequestRecord),
 		registrations:              make(map[string]*PaymentMethodRegistration),
 		configuration:              SimulatorConfiguration{Provider: "none", Requires3DS: false},
+		generatedCardSequences:     make(map[string]int),
 		configurationAccessTickets: make(map[string]time.Time),
 		configurationSessions:      make(map[string]time.Time),
 	}
@@ -190,6 +191,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/register/") ||
 		strings.HasPrefix(r.URL.Path, "/configuration-access/") ||
 		strings.HasPrefix(r.URL.Path, "/authorization-access/") ||
+		strings.HasPrefix(r.URL.Path, "/payment-method-registration-auth/") ||
 		strings.HasPrefix(r.URL.Path, "/payment-wait/") ||
 		strings.HasPrefix(r.URL.Path, "/simulator-ui/") {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'self' http://localhost:* http://127.0.0.1:*")

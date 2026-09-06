@@ -12,11 +12,10 @@
       <div>
         <span class="eyebrow">MYSCOUTEE DEVELOPMENT</span>
         <h1>3DS confirmations</h1>
-        <p>Open the external confirmation screen for any demo member with a pending payment.</p>
+        <p>Open the external confirmation screen for any demo member with a pending payment or card registration.</p>
       </div>
       <div class="header-side">
         <img class="provider-logo" id="active-provider-logo" alt="" hidden>
-        <span class="test-badge">TEST ONLY</span>
       </div>
     </header>
     <section class="summary" aria-live="polite">
@@ -26,6 +25,13 @@
     <p id="message" class="message" role="status"></p>
     <section id="pending" class="pending" aria-live="polite"></section>
   </main>
+  <dialog id="confirmation-dialog" aria-label="3DS confirmation">
+    <div class="confirmation-dialog-head">
+      <strong>3DS confirmation</strong>
+      <button type="button" id="close-confirmation-dialog" aria-label="Close confirmation">×</button>
+    </div>
+    <iframe id="confirmation-frame" title="3DS confirmation"></iframe>
+  </dialog>
   <script src="/simulator-ui/authorizations.js" defer></script>
 </body>
 </html>

@@ -18,12 +18,9 @@
   const yearSelect = document.querySelector('#expiry-year');
   const securityCodeInput = document.querySelector('#security-code');
 
-  const cards = {
-    stripe: { number: '4242424242424242', cardholderPrefix: 'Stripe Test User' },
-    barion: { number: '5555555555554444', cardholderPrefix: 'Barion Test User' }
-  };
   let activeProvider = 'stripe';
-  let generatedCardSequence = 0;
+  let registrationPoll = null;
+  let resultNotification = null;
 
   const parentOrigin = (() => {
     try { return new URL(document.referrer).origin; } catch { return '*'; }
@@ -43,17 +40,63 @@
   }
 
   function showResult(status) {
+    if (registrationPoll !== null) window.clearTimeout(registrationPoll);
+    registrationPoll = null;
+    if (resultNotification !== null) window.clearTimeout(resultNotification);
     loading.classList.add('hidden');
     formPanel.classList.add('hidden');
     resultPanel.classList.remove('hidden');
-    const cancelled = status !== 'completed';
-    document.querySelector('#result-icon').textContent = cancelled ? '×' : '✓';
-    document.querySelector('#result-icon').classList.toggle('cancelled', cancelled);
-    document.querySelector('#result-title').textContent = cancelled ? 'Registration closed' : 'Card saved';
-    document.querySelector('#result-message').textContent = cancelled
-      ? 'No card details were saved. You can return to MyScoutee.'
-      : 'The provider token is ready. You can return to MyScoutee.';
-    notifyParent(status);
+    const resultIcon = document.querySelector('#result-icon');
+    resultIcon.className = 'result-icon';
+    const results = {
+      completed: ['✓', 'Card saved', 'The provider token is ready. Returning to MyScoutee…'],
+      expired: ['⌛', 'Registration timed out', 'The 3DS confirmation was not completed in time.'],
+      failed: ['×', 'Registration failed', 'The provider could not save the card.'],
+      cancelled: ['×', 'Registration cancelled', 'The card was not saved.']
+    };
+    const result = results[status] || results.failed;
+    resultIcon.textContent = result[0];
+    if (status !== 'completed') resultIcon.classList.add(status === 'expired' ? 'expired' : 'cancelled');
+    document.querySelector('#result-title').textContent = result[1];
+    document.querySelector('#result-message').textContent = result[2];
+    resultNotification = window.setTimeout(() => notifyParent(status), 1600);
+  }
+
+  function remainingTime(registration) {
+    const expiresAt = Number(registration.threeDsExpiresAt) * 1000;
+    const remainingSeconds = Number.isFinite(expiresAt)
+      ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000))
+      : 180;
+    const minutes = Math.floor(remainingSeconds / 60);
+    return `${minutes}:${String(remainingSeconds % 60).padStart(2, '0')}`;
+  }
+
+  function showAuthorizationWait(registration) {
+    loading.classList.add('hidden');
+    formPanel.classList.add('hidden');
+    resultPanel.classList.remove('hidden');
+    const resultIcon = document.querySelector('#result-icon');
+    resultIcon.className = 'result-icon waiting';
+    resultIcon.textContent = '';
+    document.querySelector('#result-title').textContent = 'Waiting for 3DS approval';
+    document.querySelector('#result-message').textContent =
+      `Approve this card registration in the admin 3DS simulator. Time remaining: ${remainingTime(registration)}.`;
+    if (registrationPoll !== null) window.clearTimeout(registrationPoll);
+    registrationPoll = window.setTimeout(refreshAuthorization, 1000);
+  }
+
+  async function refreshAuthorization() {
+    registrationPoll = null;
+    try {
+      const registration = await request(endpoint + capabilityQuery);
+      if (registration.status === 'pending' && registration.awaiting3ds === true) {
+        showAuthorizationWait(registration);
+        return;
+      }
+      showResult(registration.status);
+    } catch (error) {
+      showResult('failed');
+    }
   }
 
   function renderProvider(registration) {
@@ -65,22 +108,25 @@
     providerLogo.alt = provider === 'barion' ? 'Barion' : 'Stripe';
   }
 
-  function generatedSecurityCode(sequence) {
-    return String(100 + (sequence * 137) % 900);
-  }
-
-  function generateTestCard() {
-    generatedCardSequence += 1;
-    const card = cards[activeProvider];
-    const sequenceLabel = String(generatedCardSequence).padStart(3, '0');
-    const now = new Date();
-    cardholderInput.value = `${card.cardholderPrefix} ${sequenceLabel}`;
-    numberInput.value = formatNumber(card.number);
-    monthSelect.value = String(now.getMonth() + 1);
-    yearSelect.value = String(now.getFullYear() + 3);
-    securityCodeInput.value = generatedSecurityCode(generatedCardSequence);
+  async function generateTestCard() {
+    generateButton.disabled = true;
     errorBox.classList.add('hidden');
-    cardholderInput.focus();
+    try {
+      const card = await request(endpoint + '/generate-test-card' + capabilityQuery, {
+        method: 'POST',
+        body: '{}'
+      });
+      cardholderInput.value = card.cardholderName;
+      numberInput.value = formatNumber(card.cardNumber);
+      monthSelect.value = String(card.expiryMonth);
+      yearSelect.value = String(card.expiryYear);
+      securityCodeInput.value = card.securityCode;
+      cardholderInput.focus();
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      generateButton.disabled = false;
+    }
   }
 
   async function request(path, options = {}) {
@@ -111,11 +157,15 @@
     yearSelect.value = String(now.getFullYear() + 3);
     try {
       const registration = await request(endpoint + capabilityQuery);
+      renderProvider(registration);
       if (registration.status !== 'pending') {
         showResult(registration.status);
         return;
       }
-      renderProvider(registration);
+      if (registration.awaiting3ds === true) {
+        showAuthorizationWait(registration);
+        return;
+      }
       loading.classList.add('hidden');
       formPanel.classList.remove('hidden');
     } catch (error) {
@@ -127,7 +177,7 @@
   }
 
   numberInput.addEventListener('input', () => { numberInput.value = formatNumber(numberInput.value); });
-  generateButton.addEventListener('click', generateTestCard);
+  generateButton.addEventListener('click', () => void generateTestCard());
 
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -147,7 +197,11 @@
       });
       numberInput.value = '';
       securityCodeInput.value = '';
-      showResult(registration.status);
+      if (registration.status === 'pending' && registration.awaiting3ds === true) {
+        showAuthorizationWait(registration);
+      } else {
+        showResult(registration.status);
+      }
     } catch (error) {
       showError(error.message);
       saveButton.disabled = false;
