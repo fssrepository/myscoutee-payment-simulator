@@ -7,6 +7,7 @@ header { display: flex; align-items: flex-start; justify-content: space-between;
 .provider-logo { width: auto; height: 2rem; max-width: 8rem; object-fit: contain; }
 .cash-only-wordmark { color: #16805b; font-weight: 800; line-height: 1; letter-spacing: -.04em; white-space: nowrap; }
 .provider-wordmark { display: inline-flex; min-height: 2rem; align-items: center; font-size: 2rem; }
+.provider-wordmark[hidden] { display: none; }
 h1 { margin: .2rem 0 .35rem; font-size: clamp(1.8rem, 6vw, 2.6rem); }
 p { margin: 0; color: #53657e; line-height: 1.55; }
 .eyebrow { color: #376cb1; font-size: .7rem; font-weight: 850; letter-spacing: .12em; }

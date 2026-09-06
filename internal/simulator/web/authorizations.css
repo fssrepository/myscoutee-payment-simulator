@@ -7,9 +7,7 @@ header { display: flex; align-items: flex-start; justify-content: space-between;
 .provider-logo { width: auto; height: 2rem; max-width: 8rem; object-fit: contain; }
 h1 { margin: .2rem 0 .35rem; font-size: clamp(1.8rem, 6vw, 2.6rem); }
 p { margin: 0; color: #53657e; line-height: 1.55; }
-.eyebrow, .test-badge { font-size: .7rem; font-weight: 850; letter-spacing: .12em; }
-.eyebrow { color: #376cb1; }
-.test-badge { flex: none; border-radius: 999px; padding: .42rem .65rem; color: #9b3f18; background: #fff0d9; }
+.eyebrow { color: #376cb1; font-size: .7rem; font-weight: 850; letter-spacing: .12em; }
 .summary { display: flex; flex-wrap: wrap; gap: .55rem; }
 .summary span { border: 1px solid #bfd6ca; border-radius: 999px; padding: .42rem .7rem; color: #216743; background: #edf8f2; font-size: .78rem; font-weight: 800; }
 .message { min-height: 1.3rem; color: #27724b; font-weight: 750; }

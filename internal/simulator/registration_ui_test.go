@@ -56,6 +56,14 @@ func TestProviderBrandingAcrossSimulatorSurfaces(t *testing.T) {
 	if strings.Contains(configurationDocument, "TEST ONLY") || strings.Contains(configurationDocument, "test-badge") {
 		t.Fatal("configuration page still renders the obsolete TEST ONLY badge")
 	}
+	configurationStyles := embeddedText(t, "web/config.css")
+	if !strings.Contains(configurationStyles, ".provider-wordmark[hidden]") {
+		t.Fatal("configuration page does not preserve exclusive active-provider visibility")
+	}
+	authorizationsDocument := embeddedText(t, "web/authorizations.html")
+	if strings.Contains(authorizationsDocument, "TEST ONLY") || strings.Contains(authorizationsDocument, "test-badge") {
+		t.Fatal("3DS confirmations page still renders the obsolete TEST ONLY badge")
+	}
 
 	for _, surface := range []string{
 		embeddedText(t, "web/register.html"),
