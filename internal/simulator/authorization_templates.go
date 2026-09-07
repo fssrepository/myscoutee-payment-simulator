@@ -21,7 +21,7 @@ var paymentMethodRegistrationAuthorizationTemplate = template.Must(template.New(
 <form method="post" action="/test/payment-method-registrations/{{.ID}}/decline?token={{.Token}}"><button class="danger">Decline card registration</button></form>
 </div>
 {{else}}
-<h1>Card registration result</h1><p>Status: <span class="status">{{.Status}}</span></p>
+<div data-confirmation-complete="true"><h1>Card registration result</h1><p>Status: <span class="status">{{.Status}}</span></p></div>
 {{end}}
 <button type="button" class="secondary" id="close-confirmation">Close</button>
 </main><script src="/simulator-ui/confirmation.js" defer></script></body></html>`))

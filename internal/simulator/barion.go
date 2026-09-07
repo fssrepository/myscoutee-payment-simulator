@@ -310,13 +310,17 @@ func (s *Server) barionGatewayPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) barionBankAuthPage(w http.ResponseWriter, r *http.Request) {
-	payment := s.authorizedBarionBrowserPayment(r, "InProgress")
+	payment := s.authorizedBarionBrowserPayment(r, "")
 	if payment == nil {
 		http.Error(w, "Barion bank authentication challenge not found.", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := barionBankAuthTemplate.Execute(w, map[string]any{"Payment": payment, "Token": payment.ControlToken}); err != nil {
+	if err := barionBankAuthTemplate.Execute(w, map[string]any{
+		"Payment": payment,
+		"Token":   payment.ControlToken,
+		"Pending": payment.Status == "InProgress" && payment.LastOperation == "customer_action_required",
+	}); err != nil {
 		log.Printf("render Barion bank authentication page: %v", err)
 	}
 }
@@ -365,6 +369,11 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 		}
 		s.mu.Unlock()
 		s.deliverBarionCallback(paymentID)
+		if !wantsJSON(r) {
+			http.Redirect(w, r, "/barion/bank-auth/"+url.PathEscape(payment.PaymentID)+"?token="+
+				url.QueryEscape(payment.ControlToken), http.StatusSeeOther)
+			return
+		}
 		http.Error(w, "The three-minute bank authentication window has expired.", http.StatusGone)
 		return
 	}
@@ -429,6 +438,10 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 	if wantsJSON(r) {
 		writeJSON(w, http.StatusOK, map[string]any{"payment": result, "redirect": redirectURL})
 		return
+	}
+	if bankChallenge {
+		redirectURL = "/barion/bank-auth/" + url.PathEscape(result.PaymentID) + "?token=" +
+			url.QueryEscape(result.ControlToken)
 	}
 	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
