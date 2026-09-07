@@ -275,8 +275,12 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "Only mode=payment is supported.")
 		return
 	}
-	if strings.TrimSpace(r.Form.Get("payment_intent_data[capture_method]")) != "manual" {
-		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "payment_intent_data[capture_method]=manual is required by the MyScoutee hold contract.")
+	captureMethod := strings.TrimSpace(r.Form.Get("payment_intent_data[capture_method]"))
+	if captureMethod == "" {
+		captureMethod = "automatic"
+	}
+	if captureMethod != "automatic" && captureMethod != "automatic_async" && captureMethod != "manual" {
+		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "capture_method must be automatic, automatic_async or manual.")
 		return
 	}
 	successURL := strings.TrimSpace(r.Form.Get("success_url"))
@@ -322,7 +326,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		Amount:            amountTotal,
 		Currency:          currency,
 		Status:            "requires_payment_method",
-		CaptureMethod:     "manual",
+		CaptureMethod:     captureMethod,
 		ClientReferenceID: session.ClientReferenceID,
 		Metadata:          cloneMap(metadata),
 		Created:           now.Unix(),
@@ -400,10 +404,14 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 	currency := strings.ToLower(strings.TrimSpace(r.Form.Get("currency")))
 	paymentMethod := strings.TrimSpace(r.Form.Get("payment_method"))
 	returnURL := strings.TrimSpace(r.Form.Get("return_url"))
+	captureMethod := strings.TrimSpace(r.Form.Get("capture_method"))
+	if captureMethod == "" {
+		captureMethod = "automatic"
+	}
 	if err != nil || amount <= 0 || currency == "" || paymentMethod == "" ||
-		strings.TrimSpace(r.Form.Get("capture_method")) != "manual" ||
+		(captureMethod != "automatic" && captureMethod != "automatic_async" && captureMethod != "manual") ||
 		strings.TrimSpace(r.Form.Get("confirm")) != "true" || !validAbsoluteHTTPURL(returnURL) {
-		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "A positive amount, currency, saved payment_method, manual capture, confirm=true and return_url are required.")
+		writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "A positive amount, currency, saved payment_method, valid capture_method, confirm=true and return_url are required.")
 		return
 	}
 
@@ -421,12 +429,14 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 	sessionID := "cs_test_" + randomHex(12)
 	controlToken := randomHex(24)
 	metadata := parseBracketMap(r.Form, "metadata")
-	status := "requires_capture"
+	status := "succeeded"
 	sessionStatus := "complete"
+	paymentStatus := "paid"
 	var nextAction *PaymentIntentNextAction
 	if requires3DS {
 		status = "requires_action"
 		sessionStatus = "open"
+		paymentStatus = "unpaid"
 		waitingURL := strings.TrimRight(s.config.PublicBaseURL, "/") + "/payment-wait/stripe/" +
 			url.PathEscape(sessionID) + "?token=" + url.QueryEscape(controlToken)
 		nextAction = &PaymentIntentNextAction{
@@ -436,18 +446,21 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 	}
 	intent := &PaymentIntent{
 		ID: intentID, Object: "payment_intent", Amount: amount, Currency: currency,
-		Status: status, CaptureMethod: "manual", PaymentMethod: paymentMethod,
+		Status: status, CaptureMethod: captureMethod, PaymentMethod: paymentMethod,
 		ClientReferenceID: metadata["checkout_session_id"], Metadata: metadata,
 		Created: now.Unix(), Livemode: false, IdempotencyKey: idempotencyKey,
 		NextAction: nextAction,
 	}
-	if status == "requires_capture" {
+	if captureMethod == "manual" && status == "succeeded" {
+		intent.Status = "requires_capture"
 		intent.AmountCapturable = amount
 		intent.CaptureBefore = now.Add(7 * 24 * time.Hour).Unix()
+	} else if status == "succeeded" {
+		intent.AmountReceived = amount
 	}
 	session := &CheckoutSession{
 		ID: sessionID, Object: "checkout.session", Status: sessionStatus,
-		PaymentStatus: "unpaid", Mode: "payment", AmountTotal: amount, Currency: currency,
+		PaymentStatus: paymentStatus, Mode: "payment", AmountTotal: amount, Currency: currency,
 		SuccessURL: returnURL, CancelURL: returnURL, ClientReferenceID: metadata["checkout_session_id"],
 		Metadata: cloneMap(metadata), Created: now.Unix(), PaymentIntent: intentID,
 		ControlToken: controlToken, IdempotencyKey: idempotencyKey,
@@ -460,8 +473,10 @@ func (s *Server) createPaymentIntent(w http.ResponseWriter, r *http.Request) {
 		s.idempotency[idempotencyKey] = idempotencyRecord{RequestHash: requestHash, SessionID: sessionID}
 	}
 	var event *WebhookEvent
-	if status == "requires_capture" {
+	if intent.Status == "requires_capture" {
 		event = s.newEventLocked("payment_intent.amount_capturable_updated", intent, idempotencyKey)
+	} else if intent.Status == "succeeded" {
+		event = s.newEventLocked("payment_intent.succeeded", intent, idempotencyKey)
 	}
 	if err := s.persistLocked(); err != nil {
 		delete(s.sessions, sessionID)
@@ -704,11 +719,19 @@ func (s *Server) applyOutcome(w http.ResponseWriter, r *http.Request) {
 	switch outcome {
 	case "complete", "authorize":
 		session.Status = "complete"
-		session.PaymentStatus = "unpaid"
-		intent.Status = "requires_capture"
-		intent.AmountCapturable = intent.Amount
-		intent.AmountReceived = 0
-		intent.CaptureBefore = s.now().UTC().Add(7 * 24 * time.Hour).Unix()
+		if intent.CaptureMethod == "manual" {
+			session.PaymentStatus = "unpaid"
+			intent.Status = "requires_capture"
+			intent.AmountCapturable = intent.Amount
+			intent.AmountReceived = 0
+			intent.CaptureBefore = s.now().UTC().Add(7 * 24 * time.Hour).Unix()
+		} else {
+			session.PaymentStatus = "paid"
+			intent.Status = "succeeded"
+			intent.AmountCapturable = 0
+			intent.AmountReceived = intent.Amount
+			intent.CaptureBefore = 0
+		}
 		intent.NextAction = nil
 		intent.LastPaymentError = nil
 		eventType = "checkout.session.completed"
@@ -758,10 +781,11 @@ func (s *Server) applyOutcome(w http.ResponseWriter, r *http.Request) {
 	event := s.newEventLocked(eventType, eventObject(eventType, session, intent), session.IdempotencyKey)
 	var authorizationEvent *WebhookEvent
 	if outcome == "complete" || outcome == "authorize" {
-		authorizationEvent = s.newEventLocked(
-			"payment_intent.amount_capturable_updated",
-			intent,
-			session.IdempotencyKey)
+		authorizationEventType := "payment_intent.succeeded"
+		if intent.Status == "requires_capture" {
+			authorizationEventType = "payment_intent.amount_capturable_updated"
+		}
+		authorizationEvent = s.newEventLocked(authorizationEventType, intent, session.IdempotencyKey)
 	}
 	if err := s.persistLocked(); err != nil {
 		*s.sessions[sessionID] = previousSession
@@ -848,16 +872,26 @@ func (s *Server) applyBankOutcome(w http.ResponseWriter, r *http.Request) {
 	switch outcome {
 	case "approve":
 		session.Status = "complete"
-		session.PaymentStatus = "unpaid"
-		intent.Status = "requires_capture"
-		intent.AmountCapturable = intent.Amount
-		intent.AmountReceived = 0
-		intent.CaptureBefore = s.now().UTC().Add(7 * 24 * time.Hour).Unix()
+		authorizationEventType := "payment_intent.succeeded"
+		if intent.CaptureMethod == "manual" {
+			session.PaymentStatus = "unpaid"
+			intent.Status = "requires_capture"
+			intent.AmountCapturable = intent.Amount
+			intent.AmountReceived = 0
+			intent.CaptureBefore = s.now().UTC().Add(7 * 24 * time.Hour).Unix()
+			authorizationEventType = "payment_intent.amount_capturable_updated"
+		} else {
+			session.PaymentStatus = "paid"
+			intent.Status = "succeeded"
+			intent.AmountCapturable = 0
+			intent.AmountReceived = intent.Amount
+			intent.CaptureBefore = 0
+		}
 		intent.NextAction = nil
 		intent.LastPaymentError = nil
 		events = append(events,
 			s.newEventLocked("checkout.session.completed", session, session.IdempotencyKey),
-			s.newEventLocked("payment_intent.amount_capturable_updated", intent, session.IdempotencyKey))
+			s.newEventLocked(authorizationEventType, intent, session.IdempotencyKey))
 		redirectURL = replaceSessionPlaceholder(session.SuccessURL, session.ID)
 	case "decline", "cancel", "timeout":
 		code := map[string]string{
