@@ -27,6 +27,9 @@ func (s *Server) loadState() error {
 	if state.Intents != nil {
 		s.intents = state.Intents
 	}
+	if state.Refunds != nil {
+		s.refunds = state.Refunds
+	}
 	if state.Idempotency != nil {
 		s.idempotency = state.Idempotency
 	}
@@ -66,6 +69,7 @@ func (s *Server) persistLocked() error {
 	state := persistedState{
 		Sessions:               s.sessions,
 		Intents:                s.intents,
+		Refunds:                s.refunds,
 		Idempotency:            s.idempotency,
 		Events:                 s.events,
 		EventOrder:             s.eventOrder,

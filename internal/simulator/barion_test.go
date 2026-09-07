@@ -106,7 +106,30 @@ func TestBarionOptionalBankChallengeAndAuthorizationRelease(t *testing.T) {
 	if requiresAction.Status != "InProgress" {
 		t.Fatalf("expected a bank challenge: %+v", requiresAction)
 	}
-	authorized := applyTestBarionOutcome(t, server, payment, "approve", true)
+	approveRequest := httptest.NewRequest(http.MethodPost,
+		"/test/barion/bank-auth/"+url.PathEscape(payment.PaymentID)+"/approve?token="+
+			url.QueryEscape(payment.ControlToken), nil)
+	approveResponse := httptest.NewRecorder()
+	server.ServeHTTP(approveResponse, approveRequest)
+	if approveResponse.Code != http.StatusSeeOther {
+		t.Fatalf("bank approval returned %d: %s", approveResponse.Code, approveResponse.Body.String())
+	}
+	resultLocation := approveResponse.Header().Get("Location")
+	wantedResultPrefix := "/barion/bank-auth/" + url.PathEscape(payment.PaymentID) + "?token="
+	if !strings.HasPrefix(resultLocation, wantedResultPrefix) || strings.Contains(resultLocation, "/game") {
+		t.Fatalf("bank approval escaped the simulator confirmation frame: %q", resultLocation)
+	}
+	resultResponse := httptest.NewRecorder()
+	server.ServeHTTP(resultResponse, httptest.NewRequest(http.MethodGet, resultLocation, nil))
+	if resultResponse.Code != http.StatusOK ||
+		!strings.Contains(resultResponse.Body.String(), "Bank authentication result") ||
+		!strings.Contains(resultResponse.Body.String(), "Authorized") ||
+		!strings.Contains(resultResponse.Body.String(), `id="close-confirmation"`) {
+		t.Fatalf("bank result did not remain simulator-owned: %d %s", resultResponse.Code, resultResponse.Body.String())
+	}
+	server.mu.RLock()
+	authorized := cloneBarionPayment(server.barionPayments[payment.PaymentID])
+	server.mu.RUnlock()
 	if authorized.Status != "Authorized" {
 		t.Fatalf("bank approval did not authorize the payment: %+v", authorized)
 	}
@@ -126,6 +149,66 @@ func TestBarionOptionalBankChallengeAndAuthorizationRelease(t *testing.T) {
 		if transaction.Status != "Reversed" || transaction.Total != 0 {
 			t.Fatalf("authorization was not reversed: %+v", transaction)
 		}
+	}
+}
+
+func TestCapturedBarionPaymentCanBePartiallyRefundedIdempotently(t *testing.T) {
+	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer callback.Close()
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	payment := startTestBarionPayment(t, server, callback.URL, "barion-refund-001")
+	authorized := applyTestBarionOutcome(t, server, payment, "authorize", false)
+	captureTransactions := make([]barionTransactionToFinish, 0, len(authorized.Transactions))
+	for _, transaction := range authorized.Transactions {
+		captureTransactions = append(captureTransactions, barionTransactionToFinish{
+			TransactionID: transaction.TransactionID,
+			Total:         transaction.Total,
+		})
+	}
+	captureResponse := barionJSONRequest(t, server, "/v2/Payment/Capture", barionFinishRequest{
+		POSKey: defaultBarionPOSKey, PaymentID: payment.PaymentID, Transactions: captureTransactions,
+	})
+	if captureResponse.Code != http.StatusOK {
+		t.Fatalf("capture returned %d: %s", captureResponse.Code, captureResponse.Body.String())
+	}
+
+	request := barionRefundRequest{
+		POSKey:    defaultBarionPOSKey,
+		PaymentID: payment.PaymentID,
+		TransactionsToRefund: []barionTransactionToRefund{{
+			TransactionID:    authorized.Transactions[0].TransactionID,
+			POSTransactionID: "refund-transaction-001",
+			AmountToRefund:   5.25,
+			Comment:          "Approved partial refund",
+		}},
+	}
+	refundResponse := barionRefundRequestForTest(t, server, request, "01234567-89ab-4def-8123-456789abcdef")
+	if refundResponse.Code != http.StatusOK {
+		t.Fatalf("refund returned %d: %s", refundResponse.Code, refundResponse.Body.String())
+	}
+	var refund barionRefundResponse
+	decodeJSON(t, refundResponse.Body.Bytes(), &refund)
+	if len(refund.Errors) != 0 || len(refund.RefundedTransactions) != 1 ||
+		refund.RefundedTransactions[0].Amount != 5.25 || refund.RefundedTransactions[0].Status != "Succeeded" {
+		t.Fatalf("unexpected refund response: %+v", refund)
+	}
+
+	replayResponse := barionRefundRequestForTest(t, server, request, "01234567-89ab-4def-8123-456789abcdef")
+	if replayResponse.Code != http.StatusOK {
+		t.Fatalf("idempotent refund replay returned %d: %s", replayResponse.Code, replayResponse.Body.String())
+	}
+	server.mu.RLock()
+	refundCount := len(server.barionPayments[payment.PaymentID].Refunds)
+	server.mu.RUnlock()
+	if refundCount != 1 {
+		t.Fatalf("idempotent refund was recorded %d times", refundCount)
 	}
 }
 
@@ -222,6 +305,25 @@ func barionJSONRequest(t *testing.T, server http.Handler, target string, body an
 	}
 	request := httptest.NewRequest(http.MethodPost, target, strings.NewReader(string(payload)))
 	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	return response
+}
+
+func barionRefundRequestForTest(
+	t *testing.T,
+	server http.Handler,
+	body barionRefundRequest,
+	idempotencyKey string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v2/Payment/Refund", strings.NewReader(string(payload)))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", idempotencyKey)
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
 	return response

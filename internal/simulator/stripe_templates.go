@@ -19,10 +19,12 @@ var checkoutTemplate = template.Must(template.New("checkout").Parse(`<!doctype h
 var bankAuthTemplate = template.Must(template.New("bank-auth").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Simulated bank authentication</title>
-<style>body{font:16px system-ui;max-width:42rem;margin:3rem auto;padding:0 1rem;color:#18253a}main{border:2px solid #526987;border-radius:1rem;padding:1.5rem;background:#eef3f9}.provider-logo{display:block;width:auto;height:2rem;max-width:8rem;margin:0 0 1rem auto;object-fit:contain}.warning{color:#8a3d00}.actions{display:grid;gap:.7rem;margin-top:1.4rem}button{width:100%;padding:.8rem;border:0;border-radius:.6rem;background:#236b47;color:white;font-weight:700}.secondary{background:#596579}.danger{background:#a63333}</style></head>
-<body><main><img class="provider-logo" src="/simulator-ui/stripe.svg" alt="Stripe"><h1>Was this you?</h1><p class="warning">Simulated bank confirmation. MyScoutee does not control whether this challenge is required.</p>
+<style>body{font:16px system-ui;max-width:42rem;margin:3rem auto;padding:0 1rem;color:#18253a}main{border:2px solid #526987;border-radius:1rem;padding:1.5rem;background:#eef3f9}.provider-logo{display:block;width:auto;height:2rem;max-width:8rem;margin:0 0 1rem auto;object-fit:contain}.warning{color:#8a3d00}.actions{display:grid;gap:.7rem;margin-top:1.4rem}button{width:100%;padding:.8rem;border:0;border-radius:.6rem;background:#236b47;color:white;font-weight:700}.secondary{margin-top:.7rem;background:#596579}.danger{background:#a63333}.status{font-weight:800}</style></head>
+<body><main><img class="provider-logo" src="/simulator-ui/stripe.svg" alt="Stripe">{{if .Pending}}<h1>Was this you?</h1><p class="warning">Simulated bank confirmation. MyScoutee does not control whether this challenge is required.</p>
 <p><strong>Payment intent:</strong> {{.Intent.ID}}<br><strong>Total:</strong> {{.Intent.Amount}} {{.Intent.Currency}} minor units<br><strong>Status:</strong> {{.Intent.Status}}</p>
 <div class="actions">
 <form method="post" action="/test/bank-auth/{{.Session.ID}}/approve?token={{.Token}}"><button>Yes, it was me</button></form>
 <form method="post" action="/test/bank-auth/{{.Session.ID}}/decline?token={{.Token}}"><button class="danger">No, it wasn't me</button></form>
-</div></main></body></html>`))
+</div>{{else}}<div data-confirmation-complete="true"><h1>Bank authentication result</h1><p>Status: <span class="status">{{.Result}}</span></p></div>{{end}}
+<button type="button" class="secondary" id="close-confirmation">Close</button>
+</main><script src="/simulator-ui/confirmation.js" defer></script></body></html>`))

@@ -223,6 +223,75 @@ func TestManualCaptureAndReleaseAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestCapturedPaymentIntentCanBePartiallyRefundedIdempotently(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	session := createTestSession(t, server, "checkout-refund", "700")
+	authorizeSession(t, server, session)
+	capture := authenticatedFormRequest(
+		http.MethodPost,
+		"/v1/payment_intents/"+session.PaymentIntent+"/capture",
+		url.Values{"amount_to_capture": {"500"}},
+		"capture-refund-001")
+	captureResponse := httptest.NewRecorder()
+	server.ServeHTTP(captureResponse, capture)
+	if captureResponse.Code != http.StatusOK {
+		t.Fatalf("partial capture returned %d: %s", captureResponse.Code, captureResponse.Body.String())
+	}
+	var captured PaymentIntent
+	decodeJSON(t, captureResponse.Body.Bytes(), &captured)
+	if captured.Status != "succeeded" || captured.AmountReceived != 500 {
+		t.Fatalf("unexpected partial capture: %+v", captured)
+	}
+
+	refundForm := url.Values{
+		"payment_intent": {session.PaymentIntent},
+		"amount":         {"300"},
+		"reason":         {"requested_by_customer"},
+	}
+	refundRequest := authenticatedFormRequest(http.MethodPost, "/v1/refunds", refundForm, "refund-001")
+	refundResponse := httptest.NewRecorder()
+	server.ServeHTTP(refundResponse, refundRequest)
+	if refundResponse.Code != http.StatusOK {
+		t.Fatalf("refund returned %d: %s", refundResponse.Code, refundResponse.Body.String())
+	}
+	var refund StripeRefund
+	decodeJSON(t, refundResponse.Body.Bytes(), &refund)
+	if refund.Status != "succeeded" || refund.Amount != 300 || refund.PaymentIntent != session.PaymentIntent {
+		t.Fatalf("unexpected refund: %+v", refund)
+	}
+
+	replay := authenticatedFormRequest(http.MethodPost, "/v1/refunds", refundForm, "refund-001")
+	replayResponse := httptest.NewRecorder()
+	server.ServeHTTP(replayResponse, replay)
+	var replayed StripeRefund
+	decodeJSON(t, replayResponse.Body.Bytes(), &replayed)
+	if replayResponse.Code != http.StatusOK || replayed.ID != refund.ID {
+		t.Fatalf("idempotent refund replay returned %d: %+v", replayResponse.Code, replayed)
+	}
+
+	retrieve := httptest.NewRequest(http.MethodGet, "/v1/refunds/"+refund.ID, nil)
+	retrieve.Header.Set("Authorization", "Bearer sk_test_myscoutee")
+	retrieveResponse := httptest.NewRecorder()
+	server.ServeHTTP(retrieveResponse, retrieve)
+	var retrieved StripeRefund
+	decodeJSON(t, retrieveResponse.Body.Bytes(), &retrieved)
+	if retrieveResponse.Code != http.StatusOK || retrieved.ID != refund.ID {
+		t.Fatalf("refund retrieval returned %d: %+v", retrieveResponse.Code, retrieved)
+	}
+
+	server.mu.RLock()
+	amountRefunded := server.intents[session.PaymentIntent].AmountRefunded
+	server.mu.RUnlock()
+	if amountRefunded != 300 {
+		t.Fatalf("captured payment recorded %d refunded minor units", amountRefunded)
+	}
+}
+
 func TestOptionalBankAuthenticationBranchesBeforeAuthorization(t *testing.T) {
 	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
 	if err != nil {
@@ -246,18 +315,30 @@ func TestOptionalBankAuthenticationBranchesBeforeAuthorization(t *testing.T) {
 		t.Fatalf("expected requires_action, got %+v", action.PaymentIntent)
 	}
 	approveRequest := httptest.NewRequest(http.MethodPost,
-		"/test/bank-auth/"+approvedSession.ID+"/approve?token="+url.QueryEscape(approvedSession.ControlToken)+"&format=json", nil)
+		"/test/bank-auth/"+approvedSession.ID+"/approve?token="+url.QueryEscape(approvedSession.ControlToken), nil)
 	approveResponse := httptest.NewRecorder()
 	server.ServeHTTP(approveResponse, approveRequest)
-	if approveResponse.Code != http.StatusOK {
+	if approveResponse.Code != http.StatusSeeOther {
 		t.Fatalf("3DS approval returned %d: %s", approveResponse.Code, approveResponse.Body.String())
 	}
-	var approved struct {
-		PaymentIntent PaymentIntent `json:"payment_intent"`
+	resultLocation := approveResponse.Header().Get("Location")
+	wantedResultPrefix := "/bank-auth/" + url.PathEscape(approvedSession.ID) + "?token="
+	if !strings.HasPrefix(resultLocation, wantedResultPrefix) || strings.Contains(resultLocation, "/game") {
+		t.Fatalf("3DS approval escaped the simulator confirmation frame: %q", resultLocation)
 	}
-	decodeJSON(t, approveResponse.Body.Bytes(), &approved)
-	if approved.PaymentIntent.Status != "requires_capture" || approved.PaymentIntent.NextAction != nil {
-		t.Fatalf("3DS approval did not authorize funds: %+v", approved.PaymentIntent)
+	resultResponse := httptest.NewRecorder()
+	server.ServeHTTP(resultResponse, httptest.NewRequest(http.MethodGet, resultLocation, nil))
+	if resultResponse.Code != http.StatusOK ||
+		!strings.Contains(resultResponse.Body.String(), "Bank authentication result") ||
+		!strings.Contains(resultResponse.Body.String(), "Approved") ||
+		!strings.Contains(resultResponse.Body.String(), `id="close-confirmation"`) {
+		t.Fatalf("3DS result did not remain simulator-owned: %d %s", resultResponse.Code, resultResponse.Body.String())
+	}
+	server.mu.RLock()
+	approvedIntent := clonePaymentIntent(server.intents[approvedSession.PaymentIntent])
+	server.mu.RUnlock()
+	if approvedIntent.Status != "requires_capture" || approvedIntent.NextAction != nil {
+		t.Fatalf("3DS approval did not authorize funds: %+v", approvedIntent)
 	}
 
 	declinedSession := createTestSession(t, server, "checkout-3ds-decline", "901")
