@@ -23,6 +23,26 @@ func authorizeBarionPayment(payment *BarionPayment, now time.Time) {
 	}
 }
 
+func completeBarionPayment(payment *BarionPayment, now time.Time) {
+	payment.Status = "Succeeded"
+	payment.FundingSource = "BankCard"
+	payment.PaymentMethod = "BankCard"
+	payment.DelayedCaptureUntil = ""
+	payment.CompletedAt = now.Format(time.RFC3339)
+	payment.LastOperation = "capture"
+	for index := range payment.Transactions {
+		payment.Transactions[index].Status = "Succeeded"
+	}
+}
+
+func approveBarionPayment(payment *BarionPayment, now time.Time) {
+	if payment.PaymentType == "Immediate" {
+		completeBarionPayment(payment, now)
+		return
+	}
+	authorizeBarionPayment(payment, now)
+}
+
 func (s *Server) authorizeBarion(bodyKey string, headerKey string) bool {
 	key := firstNonBlank(headerKey, bodyKey)
 	s.mu.RLock()

@@ -42,8 +42,8 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	request.Locale = firstNonBlank(request.Locale, "en-US")
 	request.RecurrenceType = strings.TrimSpace(request.RecurrenceType)
 	request.TraceID = strings.TrimSpace(request.TraceID)
-	if request.PaymentType != "DelayedCapture" {
-		writeBarionError(w, http.StatusBadRequest, "InvalidPaymentType", "Only DelayedCapture is supported by the MyScoutee hold contract.")
+	if request.PaymentType != "Immediate" && request.PaymentType != "DelayedCapture" {
+		writeBarionError(w, http.StatusBadRequest, "InvalidPaymentType", "PaymentType must be Immediate or DelayedCapture.")
 		return
 	}
 	if request.PaymentRequestID == "" || len(request.PaymentRequestID) > 100 {
@@ -54,10 +54,12 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 		writeBarionError(w, http.StatusBadRequest, "InvalidUrl", "RedirectUrl and CallbackUrl must be absolute HTTP(S) URLs.")
 		return
 	}
-	delayedCapturePeriod, err := parseBarionDuration(request.DelayedCapturePeriod, 7*24*time.Hour)
-	if err != nil || delayedCapturePeriod < time.Minute || delayedCapturePeriod > 21*24*time.Hour {
-		writeBarionError(w, http.StatusBadRequest, "InvalidDelayedCapturePeriod", "DelayedCapturePeriod must be between one minute and 21 days.")
-		return
+	if request.PaymentType == "DelayedCapture" {
+		delayedCapturePeriod, err := parseBarionDuration(request.DelayedCapturePeriod, 7*24*time.Hour)
+		if err != nil || delayedCapturePeriod < time.Minute || delayedCapturePeriod > 21*24*time.Hour {
+			writeBarionError(w, http.StatusBadRequest, "InvalidDelayedCapturePeriod", "DelayedCapturePeriod must be between one minute and 21 days.")
+			return
+		}
 	}
 	paymentWindow, err := parseBarionDuration(request.PaymentWindow, 30*time.Minute)
 	if err != nil || paymentWindow < time.Minute || paymentWindow > 7*24*time.Hour {
@@ -124,7 +126,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	payment := &BarionPayment{
 		PaymentID: paymentID, PaymentRequestID: request.PaymentRequestID,
-		Status: "Prepared", PaymentType: "DelayedCapture",
+		Status: "Prepared", PaymentType: request.PaymentType,
 		AllowedFundingSources: slices.Clone(request.FundingSources), PaymentMethod: "Unknown",
 		GuestCheckout: request.GuestCheckout, CreatedAt: now.Format(time.RFC3339),
 		ValidUntil: now.Add(paymentWindow).Format(time.RFC3339), Transactions: transactions,
@@ -144,7 +146,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 				payment.Transactions[index].Status = "Started"
 			}
 		} else {
-			authorizeBarionPayment(payment, now)
+			approveBarionPayment(payment, now)
 			payment.GatewayURL = ""
 		}
 	}
@@ -159,7 +161,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	result := cloneBarionPayment(payment)
 	s.mu.Unlock()
-	if result.Status == "Authorized" {
+	if result.Status == "Authorized" || result.Status == "Succeeded" {
 		s.deliverBarionCallback(result.PaymentID)
 	}
 	writeJSON(w, http.StatusOK, barionStartResponseFor(result))
@@ -500,7 +502,7 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 			http.Error(w, "Unsupported bank outcome.", http.StatusBadRequest)
 			return
 		}
-		authorizeBarionPayment(payment, s.now().UTC())
+		approveBarionPayment(payment, s.now().UTC())
 	case "3ds", "require_action":
 		if bankChallenge {
 			s.mu.Unlock()
@@ -521,7 +523,7 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 			http.Error(w, "Unsupported checkout outcome.", http.StatusBadRequest)
 			return
 		}
-		authorizeBarionPayment(payment, s.now().UTC())
+		approveBarionPayment(payment, s.now().UTC())
 	case "decline", "cancel":
 		payment.Status = "Canceled"
 		payment.CompletedAt = s.now().UTC().Format(time.RFC3339)
