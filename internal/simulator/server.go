@@ -159,6 +159,7 @@ func New(config Config) (*Server, error) {
 		mux:                        http.NewServeMux(),
 		sessions:                   make(map[string]*CheckoutSession),
 		intents:                    make(map[string]*PaymentIntent),
+		refunds:                    make(map[string]*StripeRefund),
 		idempotency:                make(map[string]idempotencyRecord),
 		events:                     make(map[string]*WebhookEvent),
 		barionPayments:             make(map[string]*BarionPayment),
@@ -213,6 +214,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/payment_intents/{intentID}", s.retrievePaymentIntent)
 	s.mux.HandleFunc("POST /v1/payment_intents/{intentID}/capture", s.capturePaymentIntent)
 	s.mux.HandleFunc("POST /v1/payment_intents/{intentID}/cancel", s.cancelPaymentIntent)
+	s.mux.HandleFunc("POST /v1/refunds", s.createStripeRefund)
+	s.mux.HandleFunc("GET /v1/refunds/{refundID}", s.retrieveStripeRefund)
 	s.mux.HandleFunc("GET /checkout/{sessionID}", s.checkoutPage)
 	s.mux.HandleFunc("GET /bank-auth/{sessionID}", s.bankAuthPage)
 	s.mux.HandleFunc("GET /payment-wait/stripe/{sessionID}", s.stripePaymentWaitPage)
@@ -568,8 +571,18 @@ func (s *Server) mutatePaymentIntent(w http.ResponseWriter, r *http.Request, ope
 			intent.AmountCapturable = 0
 			eventType = "payment_intent.canceled"
 		} else {
+			captureAmount := intent.AmountCapturable
+			if raw := strings.TrimSpace(r.Form.Get("amount_to_capture")); raw != "" {
+				parsed, err := strconv.ParseInt(raw, 10, 64)
+				if err != nil || parsed <= 0 || parsed > intent.AmountCapturable {
+					s.mu.Unlock()
+					writeStripeError(w, http.StatusBadRequest, "invalid_request_error", "Capture amount exceeds the capturable amount.")
+					return
+				}
+				captureAmount = parsed
+			}
 			intent.Status = "succeeded"
-			intent.AmountReceived = intent.Amount
+			intent.AmountReceived = captureAmount
 			intent.AmountCapturable = 0
 			intent.NextAction = nil
 			intent.LastPaymentError = nil
@@ -931,6 +944,7 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 	response := auditResponse{
 		Sessions:       make([]CheckoutSessionAudit, 0, len(sessionIDs)),
 		PaymentIntents: make([]PaymentIntentAudit, 0, len(s.intents)),
+		Refunds:        make([]StripeRefund, 0, len(s.refunds)),
 		Events:         make([]WebhookEventAudit, 0, len(s.eventOrder)),
 		BarionPayments: make([]BarionPaymentAudit, 0, len(s.barionPayments)),
 	}
@@ -962,6 +976,7 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 			Amount:             intent.Amount,
 			AmountCapturable:   intent.AmountCapturable,
 			AmountReceived:     intent.AmountReceived,
+			AmountRefunded:     intent.AmountRefunded,
 			Currency:           intent.Currency,
 			CaptureBefore:      intent.CaptureBefore,
 			CancellationReason: intent.CancellationReason,
@@ -969,6 +984,14 @@ func (s *Server) audit(w http.ResponseWriter, r *http.Request) {
 			Metadata:           cloneMap(intent.Metadata),
 			Created:            intent.Created,
 		})
+	}
+	refundIDs := make([]string, 0, len(s.refunds))
+	for id := range s.refunds {
+		refundIDs = append(refundIDs, id)
+	}
+	slices.Sort(refundIDs)
+	for _, id := range refundIDs {
+		response.Refunds = append(response.Refunds, *s.refunds[id])
 	}
 	for _, id := range s.eventOrder {
 		event := s.events[id]

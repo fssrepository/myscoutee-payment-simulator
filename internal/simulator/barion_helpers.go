@@ -58,7 +58,8 @@ func (s *Server) barionPaymentAuditsLocked() []BarionPaymentAudit {
 			PaymentID: payment.PaymentID, PaymentRequestID: payment.PaymentRequestID,
 			Status: payment.Status, Total: payment.Total, Currency: payment.Currency,
 			DelayedCaptureUntil: payment.DelayedCaptureUntil,
-			Transactions:        slices.Clone(payment.Transactions), LastOperation: payment.LastOperation,
+			Transactions:        slices.Clone(payment.Transactions), Refunds: slices.Clone(payment.Refunds),
+			LastOperation: payment.LastOperation,
 			CallbackDelivery: payment.CallbackDelivery,
 		})
 	}
@@ -72,10 +73,26 @@ func cloneBarionPayment(payment *BarionPayment) *BarionPayment {
 	clone := *payment
 	clone.AllowedFundingSources = slices.Clone(payment.AllowedFundingSources)
 	clone.Transactions = slices.Clone(payment.Transactions)
+	clone.Refunds = slices.Clone(payment.Refunds)
 	for index := range clone.Transactions {
 		clone.Transactions[index].Items = slices.Clone(payment.Transactions[index].Items)
 	}
 	return &clone
+}
+
+func barionPaymentStateFor(payment *BarionPayment) *BarionPayment {
+	clone := cloneBarionPayment(payment)
+	if clone == nil {
+		return nil
+	}
+	for _, refund := range clone.Refunds {
+		clone.Transactions = append(clone.Transactions, BarionPaymentTransaction{
+			TransactionID: refund.TransactionID, POSTransactionID: refund.POSTransactionID,
+			Total: refund.Amount, Currency: clone.Currency, Comment: refund.Comment,
+			Status: refund.Status, TransactionType: "Refund",
+		})
+	}
+	return clone
 }
 
 func barionStartResponseFor(payment *BarionPayment) barionStartResponse {

@@ -18,6 +18,7 @@ type BarionPayment struct {
 	ValidUntil            string                     `json:"ValidUntil"`
 	DelayedCaptureUntil   string                     `json:"DelayedCaptureUntil,omitempty"`
 	Transactions          []BarionPaymentTransaction `json:"Transactions"`
+	Refunds               []BarionRefundTransaction  `json:"-"`
 	Total                 float64                    `json:"Total"`
 	Currency              string                     `json:"Currency"`
 	SuggestedLocale       string                     `json:"SuggestedLocale"`
@@ -40,6 +41,7 @@ type BarionPaymentTransaction struct {
 	Comment          string       `json:"Comment,omitempty"`
 	Status           string       `json:"Status"`
 	TransactionType  string       `json:"TransactionType"`
+	RelatedID        string       `json:"RelatedId,omitempty"`
 	Items            []BarionItem `json:"Items,omitempty"`
 }
 
@@ -65,8 +67,17 @@ type BarionPaymentAudit struct {
 	Currency            string                     `json:"currency"`
 	DelayedCaptureUntil string                     `json:"delayed_capture_until,omitempty"`
 	Transactions        []BarionPaymentTransaction `json:"transactions"`
+	Refunds             []BarionRefundTransaction  `json:"refunds,omitempty"`
 	LastOperation       string                     `json:"last_operation,omitempty"`
 	CallbackDelivery    DeliveryAudit              `json:"callback_delivery"`
+}
+
+type BarionRefundTransaction struct {
+	TransactionID    string  `json:"TransactionId"`
+	POSTransactionID string  `json:"POSTransactionId"`
+	Amount           float64 `json:"Total"`
+	Comment          string  `json:"Comment,omitempty"`
+	Status           string  `json:"Status"`
 }
 
 type barionStartRequest struct {
@@ -124,6 +135,25 @@ type barionFinishResponse struct {
 	Status           string                     `json:"Status"`
 	Transactions     []BarionPaymentTransaction `json:"Transactions"`
 	Errors           []barionAPIError           `json:"Errors"`
+}
+
+type barionRefundRequest struct {
+	POSKey               string                      `json:"POSKey"`
+	PaymentID            string                      `json:"PaymentId"`
+	TransactionsToRefund []barionTransactionToRefund `json:"TransactionsToRefund"`
+}
+
+type barionTransactionToRefund struct {
+	TransactionID    string  `json:"TransactionId"`
+	POSTransactionID string  `json:"POSTransactionId"`
+	AmountToRefund   float64 `json:"AmountToRefund"`
+	Comment          string  `json:"Comment"`
+}
+
+type barionRefundResponse struct {
+	PaymentID             string                    `json:"PaymentId"`
+	RefundedTransactions  []BarionRefundTransaction `json:"RefundedTransactions"`
+	Errors                []barionAPIError          `json:"Errors"`
 }
 
 type barionAPIError struct {
