@@ -17,6 +17,7 @@ type Server struct {
 	mu                         sync.RWMutex
 	sessions                   map[string]*CheckoutSession
 	intents                    map[string]*PaymentIntent
+	refunds                    map[string]*StripeRefund
 	idempotency                map[string]idempotencyRecord
 	events                     map[string]*WebhookEvent
 	eventOrder                 []string
@@ -68,6 +69,7 @@ type PaymentIntent struct {
 	Amount             int64                    `json:"amount"`
 	AmountCapturable   int64                    `json:"amount_capturable"`
 	AmountReceived     int64                    `json:"amount_received"`
+	AmountRefunded     int64                    `json:"amount_refunded"`
 	Currency           string                   `json:"currency"`
 	Status             string                   `json:"status"`
 	CaptureMethod      string                   `json:"capture_method"`
@@ -81,6 +83,17 @@ type PaymentIntent struct {
 	Created            int64                    `json:"created"`
 	Livemode           bool                     `json:"livemode"`
 	IdempotencyKey     string                   `json:"-"`
+}
+
+type StripeRefund struct {
+	ID            string `json:"id"`
+	Object        string `json:"object"`
+	Amount        int64  `json:"amount"`
+	Currency      string `json:"currency"`
+	PaymentIntent string `json:"payment_intent"`
+	Reason        string `json:"reason,omitempty"`
+	Status        string `json:"status"`
+	Created       int64  `json:"created"`
 }
 
 type PaymentIntentNextAction struct {
@@ -136,6 +149,7 @@ type idempotencyRecord struct {
 type persistedState struct {
 	Sessions               map[string]*CheckoutSession
 	Intents                map[string]*PaymentIntent
+	Refunds                map[string]*StripeRefund
 	Idempotency            map[string]idempotencyRecord
 	Events                 map[string]*WebhookEvent
 	EventOrder             []string
@@ -183,6 +197,7 @@ type PaymentMethodRegistration struct {
 type auditResponse struct {
 	Sessions       []CheckoutSessionAudit `json:"sessions"`
 	PaymentIntents []PaymentIntentAudit   `json:"payment_intents"`
+	Refunds        []StripeRefund         `json:"refunds"`
 	Events         []WebhookEventAudit    `json:"events"`
 	BarionPayments []BarionPaymentAudit   `json:"barion_payments"`
 }
@@ -206,6 +221,7 @@ type PaymentIntentAudit struct {
 	Amount             int64             `json:"amount"`
 	AmountCapturable   int64             `json:"amount_capturable"`
 	AmountReceived     int64             `json:"amount_received"`
+	AmountRefunded     int64             `json:"amount_refunded"`
 	Currency           string            `json:"currency"`
 	CaptureBefore      int64             `json:"capture_before,omitempty"`
 	CancellationReason string            `json:"cancellation_reason,omitempty"`

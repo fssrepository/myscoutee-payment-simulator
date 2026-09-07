@@ -16,6 +16,7 @@ func (s *Server) barionRoutes() {
 	s.mux.HandleFunc("GET /v4/payment/{paymentID}/paymentstate", s.getBarionPaymentState)
 	s.mux.HandleFunc("POST /v2/Payment/Capture", s.captureBarionPayment)
 	s.mux.HandleFunc("POST /v2/Payment/CancelAuthorization", s.cancelBarionAuthorization)
+	s.mux.HandleFunc("POST /v2/Payment/Refund", s.refundBarionPayment)
 	s.mux.HandleFunc("GET /barion/gateway/{paymentID}", s.barionGatewayPage)
 	s.mux.HandleFunc("GET /barion/bank-auth/{paymentID}", s.barionBankAuthPage)
 	s.mux.HandleFunc("GET /payment-wait/barion/{paymentID}", s.barionPaymentWaitPage)
@@ -41,8 +42,8 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	request.Locale = firstNonBlank(request.Locale, "en-US")
 	request.RecurrenceType = strings.TrimSpace(request.RecurrenceType)
 	request.TraceID = strings.TrimSpace(request.TraceID)
-	if request.PaymentType != "DelayedCapture" {
-		writeBarionError(w, http.StatusBadRequest, "InvalidPaymentType", "Only DelayedCapture is supported by the MyScoutee hold contract.")
+	if request.PaymentType != "Immediate" && request.PaymentType != "DelayedCapture" {
+		writeBarionError(w, http.StatusBadRequest, "InvalidPaymentType", "PaymentType must be Immediate or DelayedCapture.")
 		return
 	}
 	if request.PaymentRequestID == "" || len(request.PaymentRequestID) > 100 {
@@ -53,10 +54,12 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 		writeBarionError(w, http.StatusBadRequest, "InvalidUrl", "RedirectUrl and CallbackUrl must be absolute HTTP(S) URLs.")
 		return
 	}
-	delayedCapturePeriod, err := parseBarionDuration(request.DelayedCapturePeriod, 7*24*time.Hour)
-	if err != nil || delayedCapturePeriod < time.Minute || delayedCapturePeriod > 21*24*time.Hour {
-		writeBarionError(w, http.StatusBadRequest, "InvalidDelayedCapturePeriod", "DelayedCapturePeriod must be between one minute and 21 days.")
-		return
+	if request.PaymentType == "DelayedCapture" {
+		delayedCapturePeriod, err := parseBarionDuration(request.DelayedCapturePeriod, 7*24*time.Hour)
+		if err != nil || delayedCapturePeriod < time.Minute || delayedCapturePeriod > 21*24*time.Hour {
+			writeBarionError(w, http.StatusBadRequest, "InvalidDelayedCapturePeriod", "DelayedCapturePeriod must be between one minute and 21 days.")
+			return
+		}
 	}
 	paymentWindow, err := parseBarionDuration(request.PaymentWindow, 30*time.Minute)
 	if err != nil || paymentWindow < time.Minute || paymentWindow > 7*24*time.Hour {
@@ -123,7 +126,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	payment := &BarionPayment{
 		PaymentID: paymentID, PaymentRequestID: request.PaymentRequestID,
-		Status: "Prepared", PaymentType: "DelayedCapture",
+		Status: "Prepared", PaymentType: request.PaymentType,
 		AllowedFundingSources: slices.Clone(request.FundingSources), PaymentMethod: "Unknown",
 		GuestCheckout: request.GuestCheckout, CreatedAt: now.Format(time.RFC3339),
 		ValidUntil: now.Add(paymentWindow).Format(time.RFC3339), Transactions: transactions,
@@ -143,7 +146,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 				payment.Transactions[index].Status = "Started"
 			}
 		} else {
-			authorizeBarionPayment(payment, now)
+			approveBarionPayment(payment, now)
 			payment.GatewayURL = ""
 		}
 	}
@@ -158,7 +161,7 @@ func (s *Server) startBarionPayment(w http.ResponseWriter, r *http.Request) {
 	}
 	result := cloneBarionPayment(payment)
 	s.mu.Unlock()
-	if result.Status == "Authorized" {
+	if result.Status == "Authorized" || result.Status == "Succeeded" {
 		s.deliverBarionCallback(result.PaymentID)
 	}
 	writeJSON(w, http.StatusOK, barionStartResponseFor(result))
@@ -170,13 +173,127 @@ func (s *Server) getBarionPaymentState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.RLock()
-	payment := cloneBarionPayment(s.barionPayments[r.PathValue("paymentID")])
+	payment := barionPaymentStateFor(s.barionPayments[r.PathValue("paymentID")])
 	s.mu.RUnlock()
 	if payment == nil {
 		writeBarionError(w, http.StatusNotFound, "PaymentNotFound", "Payment was not found.")
 		return
 	}
 	writeJSON(w, http.StatusOK, payment)
+}
+
+func (s *Server) refundBarionPayment(w http.ResponseWriter, r *http.Request) {
+	var request barionRefundRequest
+	if err := decodeLimitedJSON(r, &request); err != nil {
+		writeBarionError(w, http.StatusBadRequest, "InvalidRequest", "Invalid JSON request.")
+		return
+	}
+	if !s.authorizeBarion(request.POSKey, r.Header.Get("x-pos-key")) {
+		writeBarionError(w, http.StatusUnauthorized, "AuthenticationFailed", "Invalid test POS key.")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if s.config.RequireIdempotency && idempotencyKey == "" {
+		writeBarionError(w, http.StatusBadRequest, "IdempotencyKeyRequired", "Idempotency-Key is required by the MyScoutee QA contract.")
+		return
+	}
+	if idempotencyKey != "" && !guidPattern.MatchString(idempotencyKey) {
+		writeBarionError(w, http.StatusBadRequest, "InvalidIdempotencyKey", "Idempotency-Key must be a GUID.")
+		return
+	}
+	request.POSKey = ""
+	canonicalRequest, _ := json.Marshal(request)
+	requestHash := sha256Hex(canonicalRequest)
+	operationKey := "barion-refund:" + idempotencyKey
+
+	s.mu.Lock()
+	if idempotencyKey != "" {
+		if previous, found := s.idempotency[operationKey]; found {
+			payment := cloneBarionPayment(s.barionPayments[previous.SessionID])
+			s.mu.Unlock()
+			if previous.RequestHash != requestHash || payment == nil || payment.PaymentID != request.PaymentID {
+				writeBarionError(w, http.StatusConflict, "IdempotencyKeyReused", "The same idempotency key was used with different parameters.")
+				return
+			}
+			writeJSON(w, http.StatusOK, barionRefundResponseFor(payment, request.TransactionsToRefund))
+			return
+		}
+	}
+	payment := s.barionPayments[request.PaymentID]
+	if payment == nil {
+		s.mu.Unlock()
+		writeBarionError(w, http.StatusNotFound, "NotExistingPaymentId", "Payment was not found.")
+		return
+	}
+	if payment.Status != "Succeeded" || payment.LastOperation == "cancel_authorization" {
+		s.mu.Unlock()
+		writeBarionError(w, http.StatusConflict, "PaymentStatusNotValid", "Only a captured Succeeded payment can be refunded.")
+		return
+	}
+	if len(request.TransactionsToRefund) == 0 {
+		s.mu.Unlock()
+		writeBarionError(w, http.StatusBadRequest, "ModelValidationError", "TransactionsToRefund is required.")
+		return
+	}
+	originalByID := make(map[string]BarionPaymentTransaction, len(payment.Transactions))
+	for _, transaction := range payment.Transactions {
+		originalByID[transaction.TransactionID] = transaction
+	}
+	refundedByID := make(map[string]float64)
+	for _, refund := range payment.Refunds {
+		refundedByID[refund.TransactionID] += refund.Amount
+	}
+	seenShopIDs := make(map[string]bool)
+	for _, requested := range request.TransactionsToRefund {
+		original, found := originalByID[requested.TransactionID]
+		shopID := strings.TrimSpace(requested.POSTransactionID)
+		remaining := original.Total - refundedByID[requested.TransactionID]
+		if !found || shopID == "" || seenShopIDs[shopID] || !validMoney(requested.AmountToRefund) ||
+			requested.AmountToRefund <= 0 || requested.AmountToRefund > remaining {
+			s.mu.Unlock()
+			writeBarionError(w, http.StatusBadRequest, "InvalidTransaction", "Refund transaction is invalid or exceeds the remaining captured amount.")
+			return
+		}
+		seenShopIDs[shopID] = true
+	}
+	previous := cloneBarionPayment(payment)
+	for _, requested := range request.TransactionsToRefund {
+		payment.Refunds = append(payment.Refunds, BarionRefundTransaction{
+			TransactionID: requested.TransactionID, POSTransactionID: strings.TrimSpace(requested.POSTransactionID),
+			Amount: requested.AmountToRefund, Comment: strings.TrimSpace(requested.Comment), Status: "Succeeded",
+		})
+	}
+	payment.LastOperation = "refund"
+	if idempotencyKey != "" {
+		s.idempotency[operationKey] = idempotencyRecord{RequestHash: requestHash, SessionID: payment.PaymentID}
+	}
+	if err := s.persistLocked(); err != nil {
+		*s.barionPayments[payment.PaymentID] = *previous
+		delete(s.idempotency, operationKey)
+		s.mu.Unlock()
+		writeBarionError(w, http.StatusInternalServerError, "InternalServerError", "Could not persist refund.")
+		return
+	}
+	result := cloneBarionPayment(payment)
+	s.mu.Unlock()
+	s.deliverBarionCallback(result.PaymentID)
+	writeJSON(w, http.StatusOK, barionRefundResponseFor(result, request.TransactionsToRefund))
+}
+
+func barionRefundResponseFor(payment *BarionPayment, requested []barionTransactionToRefund) barionRefundResponse {
+	shopIDs := make(map[string]bool, len(requested))
+	for _, transaction := range requested {
+		shopIDs[strings.TrimSpace(transaction.POSTransactionID)] = true
+	}
+	refunded := make([]BarionRefundTransaction, 0, len(requested))
+	for _, transaction := range payment.Refunds {
+		if shopIDs[transaction.POSTransactionID] {
+			refunded = append(refunded, transaction)
+		}
+	}
+	return barionRefundResponse{
+		PaymentID: payment.PaymentID, RefundedTransactions: refunded, Errors: []barionAPIError{},
+	}
 }
 
 func (s *Server) captureBarionPayment(w http.ResponseWriter, r *http.Request) {
@@ -385,7 +502,7 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 			http.Error(w, "Unsupported bank outcome.", http.StatusBadRequest)
 			return
 		}
-		authorizeBarionPayment(payment, s.now().UTC())
+		approveBarionPayment(payment, s.now().UTC())
 	case "3ds", "require_action":
 		if bankChallenge {
 			s.mu.Unlock()
@@ -406,7 +523,7 @@ func (s *Server) transitionBarionBrowserPayment(w http.ResponseWriter, r *http.R
 			http.Error(w, "Unsupported checkout outcome.", http.StatusBadRequest)
 			return
 		}
-		authorizeBarionPayment(payment, s.now().UTC())
+		approveBarionPayment(payment, s.now().UTC())
 	case "decline", "cancel":
 		payment.Status = "Canceled"
 		payment.CompletedAt = s.now().UTC().Format(time.RFC3339)
