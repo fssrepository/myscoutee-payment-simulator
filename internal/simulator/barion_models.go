@@ -151,9 +151,9 @@ type barionTransactionToRefund struct {
 }
 
 type barionRefundResponse struct {
-	PaymentID             string                    `json:"PaymentId"`
-	RefundedTransactions  []BarionRefundTransaction `json:"RefundedTransactions"`
-	Errors                []barionAPIError          `json:"Errors"`
+	PaymentID            string                    `json:"PaymentId"`
+	RefundedTransactions []BarionRefundTransaction `json:"RefundedTransactions"`
+	Errors               []barionAPIError          `json:"Errors"`
 }
 
 type barionAPIError struct {

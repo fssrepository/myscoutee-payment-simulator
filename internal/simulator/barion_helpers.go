@@ -59,7 +59,7 @@ func (s *Server) barionPaymentAuditsLocked() []BarionPaymentAudit {
 			Status: payment.Status, Total: payment.Total, Currency: payment.Currency,
 			DelayedCaptureUntil: payment.DelayedCaptureUntil,
 			Transactions:        slices.Clone(payment.Transactions), Refunds: slices.Clone(payment.Refunds),
-			LastOperation: payment.LastOperation,
+			LastOperation:    payment.LastOperation,
 			CallbackDelivery: payment.CallbackDelivery,
 		})
 	}
