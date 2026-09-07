@@ -246,18 +246,30 @@ func TestOptionalBankAuthenticationBranchesBeforeAuthorization(t *testing.T) {
 		t.Fatalf("expected requires_action, got %+v", action.PaymentIntent)
 	}
 	approveRequest := httptest.NewRequest(http.MethodPost,
-		"/test/bank-auth/"+approvedSession.ID+"/approve?token="+url.QueryEscape(approvedSession.ControlToken)+"&format=json", nil)
+		"/test/bank-auth/"+approvedSession.ID+"/approve?token="+url.QueryEscape(approvedSession.ControlToken), nil)
 	approveResponse := httptest.NewRecorder()
 	server.ServeHTTP(approveResponse, approveRequest)
-	if approveResponse.Code != http.StatusOK {
+	if approveResponse.Code != http.StatusSeeOther {
 		t.Fatalf("3DS approval returned %d: %s", approveResponse.Code, approveResponse.Body.String())
 	}
-	var approved struct {
-		PaymentIntent PaymentIntent `json:"payment_intent"`
+	resultLocation := approveResponse.Header().Get("Location")
+	wantedResultPrefix := "/bank-auth/" + url.PathEscape(approvedSession.ID) + "?token="
+	if !strings.HasPrefix(resultLocation, wantedResultPrefix) || strings.Contains(resultLocation, "/game") {
+		t.Fatalf("3DS approval escaped the simulator confirmation frame: %q", resultLocation)
 	}
-	decodeJSON(t, approveResponse.Body.Bytes(), &approved)
-	if approved.PaymentIntent.Status != "requires_capture" || approved.PaymentIntent.NextAction != nil {
-		t.Fatalf("3DS approval did not authorize funds: %+v", approved.PaymentIntent)
+	resultResponse := httptest.NewRecorder()
+	server.ServeHTTP(resultResponse, httptest.NewRequest(http.MethodGet, resultLocation, nil))
+	if resultResponse.Code != http.StatusOK ||
+		!strings.Contains(resultResponse.Body.String(), "Bank authentication result") ||
+		!strings.Contains(resultResponse.Body.String(), "Approved") ||
+		!strings.Contains(resultResponse.Body.String(), `id="close-confirmation"`) {
+		t.Fatalf("3DS result did not remain simulator-owned: %d %s", resultResponse.Code, resultResponse.Body.String())
+	}
+	server.mu.RLock()
+	approvedIntent := clonePaymentIntent(server.intents[approvedSession.PaymentIntent])
+	server.mu.RUnlock()
+	if approvedIntent.Status != "requires_capture" || approvedIntent.NextAction != nil {
+		t.Fatalf("3DS approval did not authorize funds: %+v", approvedIntent)
 	}
 
 	declinedSession := createTestSession(t, server, "checkout-3ds-decline", "901")

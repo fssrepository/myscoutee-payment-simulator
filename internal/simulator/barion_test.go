@@ -106,7 +106,30 @@ func TestBarionOptionalBankChallengeAndAuthorizationRelease(t *testing.T) {
 	if requiresAction.Status != "InProgress" {
 		t.Fatalf("expected a bank challenge: %+v", requiresAction)
 	}
-	authorized := applyTestBarionOutcome(t, server, payment, "approve", true)
+	approveRequest := httptest.NewRequest(http.MethodPost,
+		"/test/barion/bank-auth/"+url.PathEscape(payment.PaymentID)+"/approve?token="+
+			url.QueryEscape(payment.ControlToken), nil)
+	approveResponse := httptest.NewRecorder()
+	server.ServeHTTP(approveResponse, approveRequest)
+	if approveResponse.Code != http.StatusSeeOther {
+		t.Fatalf("bank approval returned %d: %s", approveResponse.Code, approveResponse.Body.String())
+	}
+	resultLocation := approveResponse.Header().Get("Location")
+	wantedResultPrefix := "/barion/bank-auth/" + url.PathEscape(payment.PaymentID) + "?token="
+	if !strings.HasPrefix(resultLocation, wantedResultPrefix) || strings.Contains(resultLocation, "/game") {
+		t.Fatalf("bank approval escaped the simulator confirmation frame: %q", resultLocation)
+	}
+	resultResponse := httptest.NewRecorder()
+	server.ServeHTTP(resultResponse, httptest.NewRequest(http.MethodGet, resultLocation, nil))
+	if resultResponse.Code != http.StatusOK ||
+		!strings.Contains(resultResponse.Body.String(), "Bank authentication result") ||
+		!strings.Contains(resultResponse.Body.String(), "Authorized") ||
+		!strings.Contains(resultResponse.Body.String(), `id="close-confirmation"`) {
+		t.Fatalf("bank result did not remain simulator-owned: %d %s", resultResponse.Code, resultResponse.Body.String())
+	}
+	server.mu.RLock()
+	authorized := cloneBarionPayment(server.barionPayments[payment.PaymentID])
+	server.mu.RUnlock()
 	if authorized.Status != "Authorized" {
 		t.Fatalf("bank approval did not authorize the payment: %+v", authorized)
 	}

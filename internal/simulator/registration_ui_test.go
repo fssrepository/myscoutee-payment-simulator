@@ -79,9 +79,22 @@ func TestProviderBrandingAcrossSimulatorSurfaces(t *testing.T) {
 		t.Fatal("3DS confirmation must open inside the existing simulator iframe")
 	}
 	confirmationScript := embeddedText(t, "web/confirmation.js")
-	if !strings.Contains(confirmationScript, "myscoutee:close-payment-confirmation") ||
-		!strings.Contains(paymentMethodRegistrationAuthorizationTemplate.Tree.Root.String(), "close-confirmation") {
-		t.Fatal("card registration confirmation has no working Close action")
+	if !strings.Contains(confirmationScript, "myscoutee:close-payment-confirmation") {
+		t.Fatal("simulator confirmation script cannot close its owning dialog")
+	}
+	if !strings.Contains(confirmationScript, "data-confirmation-complete") ||
+		!strings.Contains(confirmationScript, "window.setTimeout(closeConfirmation") {
+		t.Fatal("completed simulator confirmation does not close its owning dialog automatically")
+	}
+	for name, confirmation := range map[string]string{
+		"card registration": paymentMethodRegistrationAuthorizationTemplate.Tree.Root.String(),
+		"Stripe 3DS":        bankAuthTemplate.Tree.Root.String(),
+		"Barion 3DS":        barionBankAuthTemplate.Tree.Root.String(),
+	} {
+		if !strings.Contains(confirmation, "close-confirmation") ||
+			!strings.Contains(confirmation, "data-confirmation-complete") {
+			t.Fatalf("%s confirmation has no working terminal Close contract", name)
+		}
 	}
 
 	for _, surface := range []string{

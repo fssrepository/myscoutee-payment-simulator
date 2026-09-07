@@ -191,8 +191,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/register/") ||
 		strings.HasPrefix(r.URL.Path, "/bank-auth/") ||
 		strings.HasPrefix(r.URL.Path, "/barion/bank-auth/") ||
-		strings.HasPrefix(r.URL.Path, "/test/bank-auth/") ||
-		strings.HasPrefix(r.URL.Path, "/test/barion/bank-auth/") ||
 		strings.HasPrefix(r.URL.Path, "/configuration-access/") ||
 		strings.HasPrefix(r.URL.Path, "/authorization-access/") ||
 		strings.HasPrefix(r.URL.Path, "/payment-method-registration-auth/") ||
@@ -636,16 +634,30 @@ func (s *Server) bankAuthPage(w http.ResponseWriter, r *http.Request) {
 		intent = clonePaymentIntent(s.intents[session.PaymentIntent])
 	}
 	s.mu.RUnlock()
-	if session == nil || intent == nil || intent.Status != "requires_action" ||
+	if session == nil || intent == nil ||
 		!constantTimeEqual(r.URL.Query().Get("token"), session.ControlToken) {
 		http.Error(w, "Bank authentication challenge not found.", http.StatusNotFound)
 		return
+	}
+	pending := intent.Status == "requires_action" && session.Status == "open"
+	result := "Approved"
+	if intent.LastPaymentError != nil {
+		result = "Declined"
+		if intent.LastPaymentError.Code == "authentication_timeout" {
+			result = "Timed out"
+		} else if intent.LastPaymentError.Code == "authentication_canceled" {
+			result = "Canceled"
+		}
+	} else if intent.Status == "canceled" || session.Status == "expired" {
+		result = "Timed out"
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := bankAuthTemplate.Execute(w, map[string]any{
 		"Session": session,
 		"Intent":  intent,
 		"Token":   session.ControlToken,
+		"Pending": pending,
+		"Result":  result,
 	}); err != nil {
 		log.Printf("render bank authentication page: %v", err)
 	}
@@ -810,6 +822,11 @@ func (s *Server) applyBankOutcome(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Unlock()
 		s.deliver(event)
+		if !wantsJSON(r) {
+			http.Redirect(w, r, "/bank-auth/"+url.PathEscape(session.ID)+"?token="+
+				url.QueryEscape(session.ControlToken), http.StatusSeeOther)
+			return
+		}
 		http.Error(w, "The three-minute bank authentication window has expired.", http.StatusGone)
 		return
 	}
@@ -880,7 +897,8 @@ func (s *Server) applyBankOutcome(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+	http.Redirect(w, r, "/bank-auth/"+url.PathEscape(session.ID)+"?token="+
+		url.QueryEscape(session.ControlToken), http.StatusSeeOther)
 }
 
 func (s *Server) replayEvent(w http.ResponseWriter, r *http.Request) {

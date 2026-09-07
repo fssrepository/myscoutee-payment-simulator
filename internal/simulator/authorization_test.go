@@ -143,7 +143,7 @@ func TestAuthorizationSurfaceShowsEmptyStateAccess(t *testing.T) {
 	}
 }
 
-func TestAuthorizationReviewRoutesAllowTrustedLocalFrames(t *testing.T) {
+func TestAuthorizationReviewPagesAllowTrustedLocalFrames(t *testing.T) {
 	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
 	if err != nil {
 		t.Fatal(err)
@@ -156,8 +156,6 @@ func TestAuthorizationReviewRoutesAllowTrustedLocalFrames(t *testing.T) {
 	}{
 		{method: http.MethodGet, target: "/bank-auth/missing"},
 		{method: http.MethodGet, target: "/barion/bank-auth/missing"},
-		{method: http.MethodPost, target: "/test/bank-auth/missing/approve"},
-		{method: http.MethodPost, target: "/test/barion/bank-auth/missing/approve"},
 	} {
 		response := httptest.NewRecorder()
 		server.ServeHTTP(response, httptest.NewRequest(testCase.method, testCase.target, nil))
@@ -170,10 +168,20 @@ func TestAuthorizationReviewRoutesAllowTrustedLocalFrames(t *testing.T) {
 		}
 	}
 
-	denied := httptest.NewRecorder()
-	server.ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/test/audit", nil))
-	if frameOption := denied.Header().Get("X-Frame-Options"); frameOption != "DENY" {
-		t.Errorf("non-UI simulator route must remain frame-denied, got %q", frameOption)
+	for _, testCase := range []struct {
+		method string
+		target string
+	}{
+		{method: http.MethodPost, target: "/test/bank-auth/missing/approve"},
+		{method: http.MethodPost, target: "/test/barion/bank-auth/missing/approve"},
+		{method: http.MethodGet, target: "/test/audit"},
+		{method: http.MethodGet, target: "/healthz"},
+	} {
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(testCase.method, testCase.target, nil))
+		if frameOption := response.Header().Get("X-Frame-Options"); frameOption != "DENY" {
+			t.Errorf("non-UI simulator route %s must remain frame-denied, got %q", testCase.target, frameOption)
+		}
 	}
 }
 
