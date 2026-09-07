@@ -79,6 +79,58 @@ func (s *Server) paymentMethodRegistrationRoutes() {
 	s.mux.HandleFunc("POST /public/payment-method-registrations/{registrationID}/cancel", s.cancelPaymentMethodRegistration)
 	s.mux.HandleFunc("POST /test/payment-method-registrations/{registrationID}/{outcome}", s.applyPaymentMethodRegistrationAuthorization)
 	s.mux.HandleFunc("PUT /myscoutee/v1/test-fixtures/payment-methods", s.replacePaymentMethodFixtures)
+	s.mux.HandleFunc("PUT /myscoutee/v1/test-fixtures/barion-payments/{paymentID}/captured", s.restoreCapturedBarionPaymentFixture)
+}
+
+func (s *Server) restoreCapturedBarionPaymentFixture(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeAPI(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid test API key."})
+		return
+	}
+	paymentID := strings.TrimSpace(r.PathValue("paymentID"))
+	if !guidPattern.MatchString(paymentID) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "A valid Barion payment ID is required."})
+		return
+	}
+
+	s.mu.Lock()
+	payment := s.barionPayments[paymentID]
+	if payment == nil {
+		s.mu.Unlock()
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Barion payment fixture was not found."})
+		return
+	}
+	previous := cloneBarionPayment(payment)
+	removedIdempotency := make(map[string]idempotencyRecord)
+	for key, record := range s.idempotency {
+		if strings.HasPrefix(key, "barion-refund:") && record.SessionID == paymentID {
+			removedIdempotency[key] = record
+			delete(s.idempotency, key)
+		}
+	}
+	payment.Status = "Succeeded"
+	payment.PaymentType = "Immediate"
+	payment.FundingSource = "BankCard"
+	payment.PaymentMethod = "BankCard"
+	payment.CompletedAt = s.now().UTC().Format(time.RFC3339)
+	payment.DelayedCaptureUntil = ""
+	payment.GatewayURL = ""
+	payment.LastOperation = "capture"
+	payment.Refunds = nil
+	for index := range payment.Transactions {
+		payment.Transactions[index].Status = "Succeeded"
+	}
+	if err := s.persistLocked(); err != nil {
+		*s.barionPayments[paymentID] = *previous
+		for key, record := range removedIdempotency {
+			s.idempotency[key] = record
+		}
+		s.mu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Could not restore the Barion payment fixture."})
+		return
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]string{"payment_id": paymentID, "status": "Succeeded"})
 }
 
 func (s *Server) replacePaymentMethodFixtures(w http.ResponseWriter, r *http.Request) {
