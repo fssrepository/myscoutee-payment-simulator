@@ -191,6 +191,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/register/") ||
 		strings.HasPrefix(r.URL.Path, "/bank-auth/") ||
 		strings.HasPrefix(r.URL.Path, "/barion/bank-auth/") ||
+		strings.HasPrefix(r.URL.Path, "/test/bank-auth/") ||
+		strings.HasPrefix(r.URL.Path, "/test/barion/bank-auth/") ||
 		strings.HasPrefix(r.URL.Path, "/configuration-access/") ||
 		strings.HasPrefix(r.URL.Path, "/authorization-access/") ||
 		strings.HasPrefix(r.URL.Path, "/payment-method-registration-auth/") ||

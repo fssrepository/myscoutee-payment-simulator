@@ -150,15 +150,23 @@ func TestAuthorizationReviewRoutesAllowTrustedLocalFrames(t *testing.T) {
 	}
 	defer server.Close()
 
-	for _, target := range []string{"/bank-auth/missing", "/barion/bank-auth/missing"} {
+	for _, testCase := range []struct {
+		method string
+		target string
+	}{
+		{method: http.MethodGet, target: "/bank-auth/missing"},
+		{method: http.MethodGet, target: "/barion/bank-auth/missing"},
+		{method: http.MethodPost, target: "/test/bank-auth/missing/approve"},
+		{method: http.MethodPost, target: "/test/barion/bank-auth/missing/approve"},
+	} {
 		response := httptest.NewRecorder()
-		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+		server.ServeHTTP(response, httptest.NewRequest(testCase.method, testCase.target, nil))
 		if frameOption := response.Header().Get("X-Frame-Options"); frameOption != "" {
-			t.Errorf("authorization review %s rejects its trusted parent frame with X-Frame-Options %q", target, frameOption)
+			t.Errorf("authorization review %s rejects its trusted parent frame with X-Frame-Options %q", testCase.target, frameOption)
 		}
 		csp := response.Header().Get("Content-Security-Policy")
 		if !strings.Contains(csp, "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*") {
-			t.Errorf("authorization review %s does not allow the trusted local frame: %q", target, csp)
+			t.Errorf("authorization review %s does not allow the trusted local frame: %q", testCase.target, csp)
 		}
 	}
 
