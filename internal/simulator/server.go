@@ -189,6 +189,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if strings.HasPrefix(r.URL.Path, "/register/") ||
+		strings.HasPrefix(r.URL.Path, "/bank-auth/") ||
+		strings.HasPrefix(r.URL.Path, "/barion/bank-auth/") ||
 		strings.HasPrefix(r.URL.Path, "/configuration-access/") ||
 		strings.HasPrefix(r.URL.Path, "/authorization-access/") ||
 		strings.HasPrefix(r.URL.Path, "/payment-method-registration-auth/") ||

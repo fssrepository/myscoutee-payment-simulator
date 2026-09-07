@@ -143,6 +143,32 @@ func TestAuthorizationSurfaceShowsEmptyStateAccess(t *testing.T) {
 	}
 }
 
+func TestAuthorizationReviewRoutesAllowTrustedLocalFrames(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+
+	for _, target := range []string{"/bank-auth/missing", "/barion/bank-auth/missing"} {
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+		if frameOption := response.Header().Get("X-Frame-Options"); frameOption != "" {
+			t.Errorf("authorization review %s rejects its trusted parent frame with X-Frame-Options %q", target, frameOption)
+		}
+		csp := response.Header().Get("Content-Security-Policy")
+		if !strings.Contains(csp, "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*") {
+			t.Errorf("authorization review %s does not allow the trusted local frame: %q", target, csp)
+		}
+	}
+
+	denied := httptest.NewRecorder()
+	server.ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/test/audit", nil))
+	if frameOption := denied.Header().Get("X-Frame-Options"); frameOption != "DENY" {
+		t.Errorf("non-UI simulator route must remain frame-denied, got %q", frameOption)
+	}
+}
+
 func authorizationSessionCookie(t *testing.T, server *Server) *http.Cookie {
 	t.Helper()
 	accessRequest := httptest.NewRequest(http.MethodPost, "/myscoutee/v1/authorization-access", nil)
