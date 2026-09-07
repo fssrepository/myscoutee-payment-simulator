@@ -22,7 +22,7 @@
       <div class="form-header">
         <div>
           <h1>Save a card</h1>
-          <p class="intro">This screen represents the external payment provider. Generate a complete valid test card or enter its details manually.</p>
+          <p class="intro">This screen represents the external payment provider. Generate a complete valid test card to continue.</p>
         </div>
         <button class="generate-card" id="generate-card-button" type="button">
           <span aria-hidden="true">&#8635;</span>
@@ -32,10 +32,10 @@
 
       <form id="card-form" autocomplete="off" novalidate>
         <label for="cardholder">Name on card</label>
-        <input id="cardholder" name="cardholder" maxlength="64" autocomplete="off" placeholder="TEST USER" required>
+        <input id="cardholder" name="cardholder" maxlength="64" autocomplete="off" placeholder="TEST USER" readonly required>
 
         <label for="card-number">Test card number</label>
-        <input id="card-number" name="card-number" inputmode="numeric" autocomplete="off" maxlength="23" placeholder="0000 0000 0000 0000" required>
+        <input id="card-number" name="card-number" inputmode="numeric" autocomplete="off" maxlength="23" placeholder="0000 0000 0000 0000" readonly required>
 
         <div class="form-row">
           <div>
@@ -48,7 +48,7 @@
           </div>
           <div>
             <label for="security-code">CVC</label>
-            <input id="security-code" inputmode="numeric" autocomplete="off" maxlength="3" placeholder="123" required>
+            <input id="security-code" inputmode="numeric" autocomplete="off" maxlength="3" placeholder="123" readonly required>
           </div>
         </div>
 

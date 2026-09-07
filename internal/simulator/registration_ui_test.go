@@ -15,6 +15,20 @@ func TestRegistrationGeneratorFillsEveryCardField(t *testing.T) {
 	if strings.Contains(document, `id="test-cards"`) {
 		t.Fatal("registration page still renders the old in-form test-card selector")
 	}
+	for _, input := range []string{"cardholder", "card-number", "security-code"} {
+		marker := `id="` + input + `"`
+		start := strings.Index(document, marker)
+		if start < 0 {
+			t.Fatalf("registration page has no %s input", input)
+		}
+		end := strings.Index(document[start:], ">")
+		if end < 0 || !strings.Contains(document[start:start+end], "readonly") {
+			t.Fatalf("registration input %s accepts manually entered card data", input)
+		}
+	}
+	if strings.Contains(document, "enter its details manually") {
+		t.Fatal("registration page still invites manual card entry")
+	}
 	for _, assignment := range []string{
 		"cardholderInput.value =",
 		"numberInput.value =",
