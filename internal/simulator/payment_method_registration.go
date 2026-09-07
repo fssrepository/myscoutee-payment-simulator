@@ -117,9 +117,15 @@ func (s *Server) restoreCapturedBarionPaymentFixture(w http.ResponseWriter, r *h
 	payment.GatewayURL = ""
 	payment.LastOperation = "capture"
 	payment.Refunds = nil
+	var restoredTotal float64
 	for index := range payment.Transactions {
+		if payment.Transactions[index].OriginalTotal > 0 {
+			payment.Transactions[index].Total = payment.Transactions[index].OriginalTotal
+		}
 		payment.Transactions[index].Status = "Succeeded"
+		restoredTotal += payment.Transactions[index].Total
 	}
+	payment.Total = restoredTotal
 	if err := s.persistLocked(); err != nil {
 		*s.barionPayments[paymentID] = *previous
 		for key, record := range removedIdempotency {
