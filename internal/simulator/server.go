@@ -208,6 +208,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /", s.configurationPage)
 	s.mux.HandleFunc("GET /healthz", s.health)
+	s.mux.HandleFunc("GET /exchange-rates/eurofxref.xml", s.exchangeRates)
 	s.mux.HandleFunc("POST /v1/checkout/sessions", s.createSession)
 	s.mux.HandleFunc("POST /v1/payment_intents", s.createPaymentIntent)
 	s.mux.HandleFunc("GET /v1/checkout/sessions/{sessionID}", s.retrieveSession)
