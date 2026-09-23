@@ -9,6 +9,32 @@ import (
 	"testing"
 )
 
+func TestFreshDemoSeedsCardsAndPreservesExplicitCashOnly(t *testing.T) {
+	config := testConfig(filepath.Join(t.TempDir(), "simulator.db"))
+	server, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.configuration.Provider != "stripe" || !server.providerConnectedLocked("stripe") {
+		t.Fatal("fresh demo must have a connected simulated card provider")
+	}
+	server.configuration.Provider = "none"
+	if err := server.persistLocked(); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if reopened.configuration.Provider != "none" {
+		t.Fatal("explicit cash-only configuration was replaced on restart")
+	}
+}
+
 func TestConfigurationUIRequiresPrivateOneTimeAccess(t *testing.T) {
 	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
 	if err != nil {

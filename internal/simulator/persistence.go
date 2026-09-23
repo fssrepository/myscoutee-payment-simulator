@@ -12,7 +12,11 @@ func (s *Server) loadState() error {
 	var payload []byte
 	err := s.db.QueryRow(`SELECT payload FROM simulator_state WHERE id = 1`).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		// Fresh demo deployments can exercise card flows immediately. A saved
+		// cash-only selection is restored below and must not be overwritten.
+		s.configuration.Provider = "stripe"
+		s.ensureProviderConnectionLocked("stripe")
+		return s.persistLocked()
 	}
 	if err != nil {
 		return fmt.Errorf("load simulator state: %w", err)
