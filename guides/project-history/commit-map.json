@@ -1,0 +1,86 @@
+[
+  {
+    "repository": "myscoutee-payment-simulator",
+    "original_commit": "9adde283e44a697121da41473393c5a6da3ce1c6",
+    "task_commit": "cb37396ef8e25593dd2a7f22803b177f6fe06e08",
+    "task_ids": [
+      "MSC-61"
+    ],
+    "original_source_tree": "53b0ac6eae858746b4f511395a44161453964bdb",
+    "original_execution_start": "2026-08-13T16:43:31+02:00",
+    "original_execution_end": "2026-09-02T13:56:18+02:00",
+    "original_commit_count": 4
+  },
+  {
+    "repository": "myscoutee-payment-simulator",
+    "original_commit": "7003ec784a894141f15e6a50fb997f11325f2519",
+    "task_commit": "4dec79be820862acd00bb223c97c1efad4783313",
+    "task_ids": [
+      "MSC-74"
+    ],
+    "original_source_tree": "cdec9317349ef974d526bef246c5a6ee86f53b43",
+    "original_execution_start": "2026-09-05T05:19:34+02:00",
+    "original_execution_end": "2026-09-05T09:47:40+02:00",
+    "original_commit_count": 5
+  },
+  {
+    "repository": "myscoutee-payment-simulator",
+    "original_commit": "d7501ce06b14d49a7a9401f622cb04d4e2b3b007",
+    "task_commit": "7f11e8391f389fd6148c818ff5edcf8ca44ba0fa",
+    "task_ids": [
+      "MSC-74"
+    ],
+    "original_source_tree": "a5fb715844b223c174db455d6c833d832d9584d7",
+    "original_execution_start": "2026-09-05T10:25:39+02:00",
+    "original_execution_end": "2026-09-05T13:43:47+02:00",
+    "original_commit_count": 6
+  },
+  {
+    "repository": "myscoutee-payment-simulator",
+    "original_commit": "dba8a0c8211c3a0b5b88edc5ccbcc7ebe90c7857",
+    "task_commit": "2538470e97ef5ed1e6f0bf1546a782e534a27c03",
+    "task_ids": [
+      "MSC-74"
+    ],
+    "original_source_tree": "af441d8cab5685d331f138783797134add24f13d",
+    "original_execution_start": "2026-09-05T14:01:20+02:00",
+    "original_execution_end": "2026-09-06T03:18:21+02:00",
+    "original_commit_count": 12
+  },
+  {
+    "repository": "myscoutee-payment-simulator",
+    "original_commit": "1758af82da41edc02676c7666665f977bbcd25ea",
+    "task_commit": "4d109649f1e8be12b234612f08f5dee8f172f36d",
+    "task_ids": [
+      "MSC-76"
+    ],
+    "original_source_tree": "751f29e66614ddffa6480e202816279d104bce84",
+    "original_execution_start": "2026-09-07T06:34:15+02:00",
+    "original_execution_end": "2026-09-07T14:31:41+02:00",
+    "original_commit_count": 4
+  },
+  {
+    "repository": "myscoutee-payment-simulator",
+    "original_commit": "e8645306ddda2d11cad588decf14e8be9ad1a809",
+    "task_commit": "0be3d89bbc871f914caf941954f50d1731a2cbb7",
+    "task_ids": [
+      "MSC-76"
+    ],
+    "original_source_tree": "2b7173fae049586d0811478f53524cf2dab79c32",
+    "original_execution_start": "2026-09-07T18:21:11+02:00",
+    "original_execution_end": "2026-09-07T20:48:15+02:00",
+    "original_commit_count": 6
+  },
+  {
+    "repository": "myscoutee-payment-simulator",
+    "original_commit": "8dba5ab618ee154d42e7f110cf2cdf998362ab5c",
+    "task_commit": "39abc8d6209e7ef8fde7584729fa7ba012b924c5",
+    "task_ids": [
+      "MSC-97"
+    ],
+    "original_source_tree": "e08072d1a6eed997dce4427e03ec7b4639c9ce38",
+    "original_execution_start": "2026-09-23T19:28:14+02:00",
+    "original_execution_end": "2026-09-24T01:03:06+02:00",
+    "original_commit_count": 2
+  }
+]

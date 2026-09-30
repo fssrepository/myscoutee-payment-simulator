@@ -1,0 +1,6 @@
+task_id,title,workstream,started,finished,tokens_million,api_equivalent_usd_estimate,active_hours,allocated_hours,models,reasoning,evidence
+MSC-61,Build persistent Stripe and Barion payment simulation,Tooling,2026-08-13,2026-09-02,35.99,23.04,1.1,1.07,gpt-5.6-sol; gpt-5.6-sol (est.),high; xhigh; unrecorded,Estimated task allocation of measured daily account totals
+MSC-74,Complete saved payment-method lifecycle support for QA2,Product,2026-09-05,2026-09-06,41.2,23.38,0.6,0.55,gpt-5.6-sol; gpt-6-astra,xhigh,Estimated task allocation of measured daily account totals
+MSC-76,"Complete asset checkout, payment refunds and lifecycle fixtures",Product,2026-09-07,2026-09-08,799.76,451.83,28.0,27.94,gpt-5.6-sol,xhigh,Estimated task allocation of measured daily account totals
+MSC-97,Finalize affiliate payments and navigation for v1.0.2,Product,2026-09-23,2026-09-24,367.85,485.49,11.8,11.78,gpt-6-astra,high; xhigh,Estimated task allocation of measured daily account totals
+MSC-110,Reconstruct the Project and preserve restorable Git records,Project administration (AI-assisted),2026-09-30,2026-10-01,12.0,18.47,0.749,0.75,gpt-6-astra,high,Measured maintenance-session tokens; estimated allocation by backup snapshot ownership (9:2:2:2 across four Projects)
