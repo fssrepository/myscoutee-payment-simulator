@@ -1,0 +1,72 @@
+[
+  {
+    "task_id": "MSC-61",
+    "title": "Build persistent Stripe and Barion payment simulation",
+    "workstream": "Tooling",
+    "started": "2026-08-13",
+    "finished": "2026-09-02",
+    "tokens_million": 35.99,
+    "api_equivalent_usd_estimate": 23.04,
+    "active_hours": 1.1,
+    "allocated_hours": 1.07,
+    "models": "gpt-5.6-sol; gpt-5.6-sol (est.)",
+    "reasoning": "high; xhigh; unrecorded",
+    "evidence": "Estimated task allocation of measured daily account totals"
+  },
+  {
+    "task_id": "MSC-74",
+    "title": "Complete saved payment-method lifecycle support for QA2",
+    "workstream": "Product",
+    "started": "2026-09-05",
+    "finished": "2026-09-06",
+    "tokens_million": 41.2,
+    "api_equivalent_usd_estimate": 23.38,
+    "active_hours": 0.6,
+    "allocated_hours": 0.55,
+    "models": "gpt-5.6-sol; gpt-6-astra",
+    "reasoning": "xhigh",
+    "evidence": "Estimated task allocation of measured daily account totals"
+  },
+  {
+    "task_id": "MSC-76",
+    "title": "Complete asset checkout, payment refunds and lifecycle fixtures",
+    "workstream": "Product",
+    "started": "2026-09-07",
+    "finished": "2026-09-08",
+    "tokens_million": 799.76,
+    "api_equivalent_usd_estimate": 451.83,
+    "active_hours": 28.0,
+    "allocated_hours": 27.94,
+    "models": "gpt-5.6-sol",
+    "reasoning": "xhigh",
+    "evidence": "Estimated task allocation of measured daily account totals"
+  },
+  {
+    "task_id": "MSC-97",
+    "title": "Finalize affiliate payments and navigation for v1.0.2",
+    "workstream": "Product",
+    "started": "2026-09-23",
+    "finished": "2026-09-24",
+    "tokens_million": 367.85,
+    "api_equivalent_usd_estimate": 485.49,
+    "active_hours": 11.8,
+    "allocated_hours": 11.78,
+    "models": "gpt-6-astra",
+    "reasoning": "high; xhigh",
+    "evidence": "Estimated task allocation of measured daily account totals"
+  },
+  {
+    "task_id": "MSC-110",
+    "title": "Reconstruct the Project and preserve restorable Git records",
+    "workstream": "Project administration (AI-assisted)",
+    "started": "2026-09-30",
+    "finished": "2026-10-01",
+    "tokens_million": 12.0,
+    "api_equivalent_usd_estimate": 18.47,
+    "active_hours": 0.749,
+    "allocated_hours": 0.75,
+    "models": "gpt-6-astra",
+    "reasoning": "high",
+    "evidence": "Measured maintenance-session tokens; estimated allocation by backup snapshot ownership (9:2:2:2 across four Projects)"
+  }
+]
