@@ -167,8 +167,8 @@ func New(config Config) (*Server, error) {
 		registrations:              make(map[string]*PaymentMethodRegistration),
 		configuration:              SimulatorConfiguration{Provider: "none", Requires3DS: false},
 		generatedCardSequences:     make(map[string]int),
-		configurationAccessTickets: make(map[string]time.Time),
-		configurationSessions:      make(map[string]time.Time),
+		configurationAccessTickets: make(map[string]adminAccessGrant),
+		configurationSessions:      make(map[string]adminAccessGrant),
 	}
 	if err := server.loadState(); err != nil {
 		_ = db.Close()

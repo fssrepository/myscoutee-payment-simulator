@@ -26,8 +26,8 @@ type Server struct {
 	registrations              map[string]*PaymentMethodRegistration
 	configuration              SimulatorConfiguration
 	generatedCardSequences     map[string]int
-	configurationAccessTickets map[string]time.Time
-	configurationSessions      map[string]time.Time
+	configurationAccessTickets map[string]adminAccessGrant
+	configurationSessions      map[string]adminAccessGrant
 }
 
 type CheckoutSession struct {

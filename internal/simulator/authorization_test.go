@@ -185,9 +185,13 @@ func TestAuthorizationReviewPagesAllowTrustedLocalFrames(t *testing.T) {
 	}
 }
 
-func authorizationSessionCookie(t *testing.T, server *Server) *http.Cookie {
+func authorizationSessionCookie(t *testing.T, server *Server, scopes ...string) *http.Cookie {
 	t.Helper()
-	accessRequest := httptest.NewRequest(http.MethodPost, "/myscoutee/v1/authorization-access", nil)
+	payload := ""
+	if len(scopes) > 0 {
+		payload = scopes[0]
+	}
+	accessRequest := httptest.NewRequest(http.MethodPost, "/myscoutee/v1/authorization-access", strings.NewReader(payload))
 	accessRequest.Header.Set("Authorization", "Bearer sk_test_myscoutee")
 	accessResponse := httptest.NewRecorder()
 	server.ServeHTTP(accessResponse, accessRequest)
@@ -212,4 +216,45 @@ func authorizationSessionCookie(t *testing.T, server *Server) *http.Cookie {
 		t.Fatalf("authorization access exchange returned cookies: %+v", cookies)
 	}
 	return cookies[0]
+}
+
+func TestAuthorizationScopeFiltersServerSideAndCannotChangeConfiguration(t *testing.T) {
+	server, err := New(testConfig(filepath.Join(t.TempDir(), "simulator.db")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	server.sessions["dating"] = &CheckoutSession{ID: "dating", Status: "open", PaymentIntent: "pi-dating"}
+	server.sessions["work"] = &CheckoutSession{ID: "work", Status: "open", PaymentIntent: "pi-work"}
+	server.intents["pi-dating"] = &PaymentIntent{Status: "requires_action", Metadata: map[string]string{"user_id": "dating-user"}}
+	server.intents["pi-work"] = &PaymentIntent{Status: "requires_action", Metadata: map[string]string{"user_id": "work-user"}}
+	server.barionPayments["work-barion"] = &BarionPayment{PaymentID: "work-barion", PaymentRequestID: "myscoutee:pay_work", Status: "InProgress", LastOperation: "customer_action_required"}
+	for _, tc := range []struct {
+		scope string
+		count int
+	}{
+		{`{"baseGroupId":"myscoutee-work","userReferences":["work-user"],"paymentReferences":["myscoutee:pay_work"]}`, 2},
+		{`{"baseGroupId":"dating","userReferences":["dating-user"],"paymentReferences":[]}`, 1},
+		{`{"baseGroupId":"myscoutee-work","userReferences":[],"paymentReferences":[]}`, 0},
+	} {
+		cookie := authorizationSessionCookie(t, server, tc.scope)
+		request := httptest.NewRequest(http.MethodGet, "/authorization-session", nil)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		var state struct {
+			Pending []pendingAuthorization `json:"pending"`
+		}
+		decodeJSON(t, response.Body.Bytes(), &state)
+		if response.Code != http.StatusOK || len(state.Pending) != tc.count {
+			t.Fatalf("scope leaked: %d %s", response.Code, response.Body.String())
+		}
+		denied := httptest.NewRequest(http.MethodGet, "/configuration-session", nil)
+		denied.AddCookie(cookie)
+		denial := httptest.NewRecorder()
+		server.ServeHTTP(denial, denied)
+		if denial.Code != http.StatusUnauthorized {
+			t.Fatalf("authorization grant accessed provider configuration: %d", denial.Code)
+		}
+	}
 }

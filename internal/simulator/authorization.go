@@ -2,6 +2,7 @@ package simulator
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -10,6 +11,17 @@ import (
 )
 
 const paymentAuthorizationTTL = 3 * time.Minute
+
+type authorizationScope struct {
+	BaseGroupID       string   `json:"baseGroupId"`
+	UserReferences    []string `json:"userReferences"`
+	PaymentReferences []string `json:"paymentReferences"`
+}
+
+func (scope *authorizationScope) permits(item pendingAuthorization) bool {
+	return scope == nil || (item.UserReference != "" && slices.Contains(scope.UserReferences, item.UserReference)) ||
+		(item.Reference != "" && slices.Contains(scope.PaymentReferences, item.Reference))
+}
 
 type pendingAuthorization struct {
 	ID              string  `json:"id"`
@@ -38,12 +50,18 @@ func (s *Server) createAuthorizationAccess(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid test API key."})
 		return
 	}
+	var scope *authorizationScope
+	// Existing standalone API callers can omit a scope; the application always supplies an explicit allowlist.
+	if err := decodeStrictJSON(r, &scope); err != nil && err != io.EOF {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid authorization scope."})
+		return
+	}
 	now := s.now().UTC()
 	expiresAt := now.Add(configurationAccessTTL)
 	ticket := randomHex(24)
 	s.mu.Lock()
 	s.cleanupConfigurationAccessLocked(now)
-	s.configurationAccessTickets[ticket] = expiresAt
+	s.configurationAccessTickets[ticket] = adminAccessGrant{ExpiresAt: expiresAt, AuthorizationOnly: true, Scope: scope}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"url":       strings.TrimRight(s.config.PublicBaseURL, "/") + "/authorization-access/" + ticket,
@@ -56,7 +74,7 @@ func (s *Server) exchangeAuthorizationAccess(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) authorizationDocument(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeConfigurationSession(r) {
+	if _, ok := s.authorizationSession(r); !ok {
 		http.NotFound(w, r)
 		return
 	}
@@ -71,12 +89,13 @@ func (s *Server) authorizationDocument(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionAuthorizations(w http.ResponseWriter, r *http.Request) {
-	if !s.authorizeConfigurationSession(r) {
+	scope, ok := s.authorizationSession(r)
+	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Admin simulator session is missing or expired."})
 		return
 	}
 	s.mu.RLock()
-	pending := s.pendingAuthorizationsLocked()
+	pending := slices.DeleteFunc(s.pendingAuthorizationsLocked(), func(item pendingAuthorization) bool { return !scope.permits(item) })
 	configuration := s.configuration
 	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -84,6 +103,19 @@ func (s *Server) sessionAuthorizations(w http.ResponseWriter, r *http.Request) {
 		"requires3ds": configuration.Requires3DS,
 		"pending":     pending,
 	})
+}
+
+func (s *Server) authorizationSession(r *http.Request) (*authorizationScope, bool) {
+	cookie, err := r.Cookie(configurationSessionCookieName)
+	if err != nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now().UTC()
+	s.cleanupConfigurationAccessLocked(now)
+	grant, found := s.configurationSessions[strings.TrimSpace(cookie.Value)]
+	return grant.Scope, found && grant.ExpiresAt.After(now)
 }
 
 func (s *Server) pendingAuthorizationsLocked() []pendingAuthorization {
