@@ -22,6 +22,12 @@ func (s *Server) configurationRoutes() {
 	s.mux.HandleFunc("POST /configuration-session/providers/{provider}/connection", s.createProviderConnection)
 }
 
+type adminAccessGrant struct {
+	ExpiresAt         time.Time
+	AuthorizationOnly bool
+	Scope             *authorizationScope
+}
+
 type updateSimulatorConfigurationRequest struct {
 	Provider    string `json:"provider"`
 	Requires3DS bool   `json:"requires3ds"`
@@ -74,7 +80,7 @@ func (s *Server) createConfigurationAccess(w http.ResponseWriter, r *http.Reques
 	ticket := randomHex(24)
 	s.mu.Lock()
 	s.cleanupConfigurationAccessLocked(now)
-	s.configurationAccessTickets[ticket] = expiresAt
+	s.configurationAccessTickets[ticket] = adminAccessGrant{ExpiresAt: expiresAt}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"url":       strings.TrimRight(s.config.PublicBaseURL, "/") + "/configuration-access/" + ticket,
@@ -95,14 +101,15 @@ func (s *Server) exchangeAdminAccess(w http.ResponseWriter, r *http.Request, tar
 	if found {
 		delete(s.configurationAccessTickets, ticket)
 	}
-	if !found || !ticketExpiry.After(now) {
+	if !found || !ticketExpiry.ExpiresAt.After(now) || (ticketExpiry.AuthorizationOnly && target != "/simulator-ui/authorizations.html") {
 		s.mu.Unlock()
 		http.NotFound(w, r)
 		return
 	}
 	sessionToken := randomHex(32)
 	sessionExpiry := now.Add(configurationAccessTTL)
-	s.configurationSessions[sessionToken] = sessionExpiry
+	ticketExpiry.ExpiresAt = sessionExpiry
+	s.configurationSessions[sessionToken] = ticketExpiry
 	s.mu.Unlock()
 	http.SetCookie(w, &http.Cookie{
 		Name:     configurationSessionCookieName,
@@ -224,17 +231,17 @@ func (s *Server) authorizeConfigurationSession(r *http.Request) bool {
 	s.cleanupConfigurationAccessLocked(now)
 	expiresAt, found := s.configurationSessions[token]
 	s.mu.Unlock()
-	return found && expiresAt.After(now)
+	return found && !expiresAt.AuthorizationOnly && expiresAt.ExpiresAt.After(now)
 }
 
 func (s *Server) cleanupConfigurationAccessLocked(now time.Time) {
 	for ticket, expiresAt := range s.configurationAccessTickets {
-		if !expiresAt.After(now) {
+		if !expiresAt.ExpiresAt.After(now) {
 			delete(s.configurationAccessTickets, ticket)
 		}
 	}
 	for token, expiresAt := range s.configurationSessions {
-		if !expiresAt.After(now) {
+		if !expiresAt.ExpiresAt.After(now) {
 			delete(s.configurationSessions, token)
 		}
 	}

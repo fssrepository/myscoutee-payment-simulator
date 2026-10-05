@@ -105,3 +105,15 @@ The simulator intentionally supports only card-capable delayed capture.
 Open-banking transfers do not advertise a reversible authorization-hold
 capability and therefore cannot participate in the MyScoutee seat-replacement
 lifecycle.
+
+### Group-scoped authorization access
+
+The existing authenticated `POST /myscoutee/v1/authorization-access` accepts
+`baseGroupId`, `userReferences` and `paymentReferences` as an optional JSON scope.
+The application derives these references from its selected administrative base
+profile. Pending authorizations are filtered on the server; an empty explicit
+scope returns no approvals. Barion uses the `myscoutee:<checkoutSessionId>` reference.
+The allowlist is a snapshot at ticket creation, so reopen the approval surface
+for a Barion payment created later. Existing standalone callers may omit the scope.
+An authorization ticket/session cannot access or modify provider configuration.
+Provider configuration itself remains deployment-wide.
