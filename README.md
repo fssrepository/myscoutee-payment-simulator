@@ -117,3 +117,12 @@ The allowlist is a snapshot at ticket creation, so reopen the approval surface
 for a Barion payment created later. Existing standalone callers may omit the scope.
 An authorization ticket/session cannot access or modify provider configuration.
 Provider configuration itself remains deployment-wide.
+
+## Image release
+
+Release `v1.5.0` publishes the existing Dockerfile as
+`ghcr.io/fssrepository/myscoutee-payment-simulator:1.5.0` for Linux amd64.
+The release records the immutable image digest and source revision after native
+Go race tests and registry pull verification. Configuration and SQLite data
+remain outside the image. This is a development/QA image, not a production
+payment service.
