@@ -1,0 +1,10 @@
+{
+  "project": "myscoutee-payment-simulator",
+  "type": "go-image",
+  "depends_on": [],
+  "variables": {
+    "LAB_GITHUB_REPOSITORY": "fssrepository/myscoutee-payment-simulator"
+  },
+  "release_notes": "guides/releases/v{version}.md",
+  "release_name": "MyScoutee Payment Simulator"
+}
